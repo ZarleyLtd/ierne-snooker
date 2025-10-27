@@ -1,2 +1,0 @@
-# ierne-snooker
-Ierne Snooker
