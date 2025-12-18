@@ -1,0 +1,12 @@
+# Project: Snooker League Website
+
+## Component Architecture
+- We use a component-based approach for HTML.
+- **Source Components**: Located in `/components/` (e.g., `header.html`, `footer.html`).
+- **Implementation**: These components are pasted directly into final `.html` files.
+
+## Rules for AI (Cursor)
+1. **Syncing**: Whenever I ask to update the "Header" or "Footer," always update the code in the `/components/` folder first. 
+2. **Propagate**: Then, find all `.html` files in the root directory and update the corresponding block of code so the entire site stays in sync.
+3. **Relative Paths**: Always use relative paths (e.g., `assets/css/style.css`, not `/assets/css/style.css`).
+4. **No absolute URLs**: Never include `http://localhost` or drive letters like `C:/Users/`.
