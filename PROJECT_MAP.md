@@ -5,7 +5,7 @@ A lightweight, static HTML website for the local snooker league.
 No heavy frameworks. Focus on speed, clean SEO, and simple updates.
 
 ## 📂 Folder Structure
-- `/` (Root): Main pages (`index.html`, `rules.html`, `league-table.html`).
+- `/` (Root): Main pages (`index.html`, `rules.html`, `leagues.html`, `fixtures.html`, `results.html`, etc.).
 - `/components/`: Reusable HTML fragments (Header, Nav, Footer).
 - `/assets/css/`: Main stylesheet (`style.css`).
 - `/assets/js/`: Custom scripts (Google Sheets integration).
@@ -18,9 +18,13 @@ No heavy frameworks. Focus on speed, clean SEO, and simple updates.
 - **Responsive**: Mobile-first design (Snooker players check scores on phones).
 
 ## 🧭 Page Navigation
-- **Home (`index.html`)**: Latest news and quick links.
+- **Home (`index.html`)**: Latest news and knockout tournament results.
+- **Leagues (`leagues.html`)**: League standings for League A and League B.
+- **Fixtures (`fixtures.html`)**: Upcoming match fixtures.
+- **Results (`results.html`)**: Match results.
+- **Top Breaks (`top-breaks.html`)**: Highest break scores.
+- **Handicaps (`handicaps.html`)**: Player handicap information.
 - **Rules (`rules.html`)**: Static text explaining league laws.
-- **League Table (`league-table.html`)**: The core dynamic page.
 
 ## 🚫 Out of Bounds (Publii Hangover)
 - DO NOT create `authors/`, `tags/`, or `page/` folders.

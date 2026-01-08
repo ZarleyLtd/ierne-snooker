@@ -1,4 +1,4 @@
-window.publiiSvgFix = {
+window.svgMap = {
 
     "#search": {
         "viewbox": "0 0 24 24",

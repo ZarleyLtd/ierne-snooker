@@ -451,7 +451,7 @@ window.addEventListener('scroll', () => {
      * Run menu scripts 
      */
     init();
-})(window.publiiThemeMenuConfig);
+})(window.themeMenuConfig);
 
 // Load search input area
 const searchButton = document.querySelector('.js-search-btn');
