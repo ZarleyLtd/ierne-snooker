@@ -15,7 +15,7 @@ const LeaguesPage = {
         return;
       }
       
-      const data = await CsvLoader.load(url, { skipEmptyLines: true });
+      const data = await CsvLoader.load(url, { header: false, skipEmptyLines: true });
       
       const { leagueOne, leagueTwo } = LeagueStandings.processData(data);
       
