@@ -85,7 +85,7 @@
           </span>
         </button>
         <ul class="navbar__menu">
-          <li class="active">
+          <li>
             <a href="index.html" target="_self">Home</a>
           </li>
           <li>
@@ -207,22 +207,8 @@
         </div>
         <button id="backToTop" class="footer__bttop" aria-label="Back to top" title="Back to top">
           <svg width="20" height="20" viewBox="0 0 24 24">
-            <path
-              d="M8 6L12 2L16 6"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <path
-              d="M12 2V22"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
+            <path d="M8 6L12 2L16 6" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M12 2V22" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
       </div>
@@ -238,5 +224,8 @@
         relatedContainerForOverlayMenuSelector: ".top",
       };
     </script>
+    <script src="assets/js/utils/nav-active.js"></script>
+    <!-- Only include nav-debug.js in development/debug mode when needed -->
+    <!-- <script src="assets/js/utils/nav-debug.js"></script> -->
   </body>
 </html>

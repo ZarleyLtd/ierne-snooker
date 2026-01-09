@@ -33,22 +33,13 @@
   <body class="error-template">
     <header class="top js-header">
       <a class="logo" href="index.html">
-        <img
-          src="assets/images/Ierne-logo-768x920.png"
-          alt="ierne-snooker"
-          width="768"
-          height="920"
-      /></a>
+        <img src="assets/images/Ierne-logo-768x920.png" alt="ierne-snooker" width="768" height="920">
+      </a>
       <nav class="navbar js-navbar">
-        <button
-          class="navbar__toggle js-toggle"
-          aria-label="Menu"
-          aria-haspopup="true"
-          aria-expanded="false"
-        >
-          <span class="navbar__toggle-box"
-            ><span class="navbar__toggle-inner">Menu</span></span
-          >
+        <button class="navbar__toggle js-toggle" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+          <span class="navbar__toggle-box">
+            <span class="navbar__toggle-inner">Menu</span>
+          </span>
         </button>
         <ul class="navbar__menu">
           <li>
@@ -147,5 +138,8 @@
         relatedContainerForOverlayMenuSelector: ".top",
       };
     </script>
+    <script src="assets/js/utils/nav-active.js"></script>
+    <!-- Only include nav-debug.js in development/debug mode when needed -->
+    <!-- <script src="assets/js/utils/nav-debug.js"></script> -->
   </body>
 </html>
