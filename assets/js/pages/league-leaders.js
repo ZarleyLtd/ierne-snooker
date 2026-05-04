@@ -16,7 +16,12 @@ const LeagueLeadersPlaceholder = {
         return;
       }
       
-      const data = await CsvLoader.load(url, { skipEmptyLines: true });
+      // This page relies on numeric column indexes (row[0], row[5], ...),
+      // so we must load CSV without PapaParse's `header:true`.
+      const data = await CsvLoader.load(url, {
+        header: false,
+        skipEmptyLines: true,
+      });
       const dataRows = data.slice(3); // skip header rows
       
       const leagueA = [];
