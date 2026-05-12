@@ -35,7 +35,12 @@ document.addEventListener('DOMContentLoaded', function() {
   if (document.getElementById('handicaps')) {
     HandicapsPage.init();
   }
-  
+
+  // Top Breaks page
+  if (document.getElementById('topBreaksList')) {
+    TopBreaksPage.init();
+  }
+
   // Under development page (league-a, league-b)
   if (document.getElementById('league-a') || 
       document.getElementById('league-b')) {

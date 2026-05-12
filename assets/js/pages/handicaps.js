@@ -6,33 +6,9 @@ const HandicapsPage = {
     if (!table) return;
     
     try {
-      const url = SheetsConfig.getSheetUrl('handicaps');
-      if (!url) {
-        console.error('Invalid handicaps sheet URL');
-        return;
-      }
-      
-      const data = await CsvLoader.load(url);
-      
-      // Filter valid rows
-      const rows = data.filter(r => 
-        r['Player Name'] && r['Handicap'] && r['Handicap Date']
-      );
-      
-      // Get latest handicap per player
-      const latestByPlayer = {};
-      rows.forEach(r => {
-        const name = r['Player Name'].trim();
-        const date = new Date(r['Handicap Date']);
-        if (!latestByPlayer[name] || date > new Date(latestByPlayer[name]['Handicap Date'])) {
-          latestByPlayer[name] = r;
-        }
-      });
-      
-      // Sort alphabetically
-      const sortedPlayers = Object.values(latestByPlayer).sort((a, b) =>
-        a['Player Name'].localeCompare(b['Player Name'])
-      );
+      const result = await ApiClient.get({ action: 'getHandicaps' });
+      // The API already returns the latest handicap per player, sorted alphabetically.
+      const sortedPlayers = (result.latest || []).filter(r => r['Player Name']);
       
       // Render table
       let tbody = table.querySelector('tbody');

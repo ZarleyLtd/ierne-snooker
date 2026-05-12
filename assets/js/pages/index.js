@@ -12,13 +12,8 @@ const IndexPage = {
     if (!hasKnockoutContainers) return;
     
     try {
-      const url = SheetsConfig.getSheetUrl('fixtures');
-      if (!url) {
-        console.error('Invalid fixtures sheet URL');
-        return;
-      }
-      
-      const fixtures = await CsvLoader.load(url);
+      const result = await ApiClient.get({ action: 'getFixtures' });
+      const fixtures = result.fixtures || [];
       
       const gameWeekMap = {
         'champ-semis': 'CS',

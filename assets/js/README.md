@@ -1,15 +1,15 @@
 # JavaScript Module Structure
 
-This directory contains a modular, component-based JavaScript architecture for the Snooker League website.
+This directory contains the modular, component-based JavaScript that powers the Snooker League website.
 
 ## Directory Structure
 
 ```
 assets/js/
 ├── config/
-│   └── sheets-config.js       # Google Sheets configuration (single source of truth)
+│   └── app-config.js          # Edge Function URL (single source of truth)
 ├── utils/
-│   ├── csv-loader.js          # CSV loading utility (PapaParse wrapper)
+│   ├── api-client.js          # Fetch wrapper for the ierne-api Edge Function
 │   ├── formatters.js          # Data formatting helpers
 │   └── image-loader.js        # Image loading utility
 ├── components/
@@ -21,33 +21,43 @@ assets/js/
 │   ├── results.js             # Results page
 │   ├── leagues.js             # Leagues page
 │   ├── handicaps.js           # Handicaps page
+│   ├── top-breaks.js          # Top Breaks leaderboard for the current season
 │   ├── under-development.js   # Under development page
 │   └── league-leaders.js      # League leaders placeholder replacement
 └── main.js                    # Main entry point & page router
 ```
 
-## How to Change Google Sheet
+## How to Change the Backend
 
-1. Open `config/sheets-config.js`
-2. Update `baseSheetId` with your new Google Sheet ID
-3. Update `sheetTabs` object with the correct gid values for each tab
-4. That's it! All pages will automatically use the new sheet.
+1. Open `config/app-config.js`.
+2. Update `apiUrl` with the new Edge Function URL.
+3. That's it — all pages automatically pick up the new endpoint.
 
-### Finding Sheet IDs
-
-- **Sheet ID**: Found between `/d/e/` and `/pub` in the published URL
-- **Tab ID (gid)**: Found in the `gid=` parameter of the published URL
+For schema or endpoint changes, see `../../docs/SUPABASE_SETUP.md`.
 
 ## Script Loading Order (in HTML)
 
 Scripts must be loaded in this order:
 
-1. PapaParse library (external CDN)
-2. Configuration (`config/sheets-config.js`)
-3. Utilities (`utils/*.js`)
-4. Components (`components/*.js`)
-5. Page modules (`pages/*.js`)
-6. Main entry point (`main.js`)
+1. Configuration (`config/app-config.js`)
+2. Utilities (`utils/*.js`)
+3. Components (`components/*.js`)
+4. Page modules (`pages/*.js`)
+5. Main entry point (`main.js`)
+
+## API Access Pattern
+
+Pages fetch data through the shared `ApiClient`:
+
+```js
+ApiClient.get({ action: 'getFixtures' })
+  .then((result) => { /* result.fixtures, result.success */ });
+```
+
+The Edge Function is responsible for shaping the data into the column names
+the page modules already expect (`'Game Week'`, `'Player A'`, `'Player B'`,
+`'Player Name'`, etc.), so most page logic stayed unchanged when we moved
+off Google Sheets.
 
 ## Benefits
 
@@ -60,13 +70,13 @@ Scripts must be loaded in this order:
 
 ## Adding a New Page
 
-1. Create a new file in `pages/` (e.g., `pages/my-new-page.js`)
-2. Export a module with an `init()` method
-3. Add page detection logic in `main.js`
-4. Add the script tag to your HTML file
+1. Create a new file in `pages/` (e.g., `pages/my-new-page.js`).
+2. Export a module with an `init()` method.
+3. Add page detection logic in `main.js`.
+4. Add the script tag to your HTML file in the order shown above.
 
 ## Module Dependencies
 
-- All modules depend on utilities and config
-- Page modules depend on components and utilities
-- Main.js depends on all page modules
+- All modules depend on utilities and config.
+- Page modules depend on components and utilities.
+- `main.js` depends on all page modules.

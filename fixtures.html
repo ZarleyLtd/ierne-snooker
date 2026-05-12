@@ -44,11 +44,11 @@
         }
       </style></noscript
     >
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <!-- Configuration -->
-    <script src="assets/js/config/sheets-config.js"></script>
+    <script src="assets/js/config/app-config.js"></script>
     <!-- Utilities -->
-    <script src="assets/js/utils/csv-loader.js"></script>
+    <script src="assets/js/utils/api-client.js"></script>
+    <script src="assets/js/utils/admin-mode.js"></script>
     <script src="assets/js/utils/formatters.js"></script>
     <script src="assets/js/utils/image-loader.js"></script>
     <!-- Components -->
@@ -60,6 +60,7 @@
     <script src="assets/js/pages/results.js"></script>
     <script src="assets/js/pages/leagues.js"></script>
     <script src="assets/js/pages/handicaps.js"></script>
+    <script src="assets/js/pages/top-breaks.js"></script>
     <script src="assets/js/pages/under-development.js"></script>
     <script src="assets/js/pages/league-leaders.js"></script>
     <!-- Main entry point -->
@@ -101,6 +102,9 @@
           <li>
             <a href="under-development.html" target="_self">Under Development</a>
           </li>
+          <li>
+            <button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle">Unlock Admin Mode</button>
+          </li>
         </ul>
       </nav>
     </header>
@@ -128,6 +132,108 @@
             style="text-align: center; margin: 0 auto; max-width: 600px"
           ></div>
           <p class="align-right"></p>
+
+          <dialog id="fixture-result-dialog" class="fixture-result-dialog" aria-labelledby="fixture-result-title">
+            <form id="fixture-result-form">
+              <h2 id="fixture-result-title" class="fixture-result-dialog__heading">Enter result</h2>
+              <input type="hidden" id="fixture-result-fixture-id" />
+              <input type="hidden" id="fixture-result-player-a-id" />
+              <input type="hidden" id="fixture-result-player-b-id" />
+              <p class="fixture-result-date-row">
+                <label for="fixture-result-date">Match date</label>
+                <input type="date" id="fixture-result-date" required />
+              </p>
+              <div class="fixture-result-player-block">
+                <div class="fixture-result-player-row-main">
+                  <div id="fixture-result-label-a" class="fixture-result-player-name"></div>
+                  <div
+                    id="fixture-frame-racks-a"
+                    class="fixture-frame-racks-host"
+                    data-frame-racks-for="a"
+                    role="group"
+                    aria-label="Frames scored"
+                  ></div>
+                  <div class="fixture-frame-score-num" id="fixture-result-score-a-display">0</div>
+                </div>
+                <input type="hidden" id="fixture-result-score-a" value="0" />
+                <div class="fixture-breaks-entry">
+                  <div class="fixture-breaks-entry__meta">
+                    <label for="fixture-breaks-field-a" class="fixture-breaks-entry__label">Add Breaks</label>
+                    <div class="fixture-breaks-entry__cue" aria-hidden="true">
+                      <svg class="fixture-breaks-cue-svg" viewBox="0 0 240 28" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                        <rect x="0" y="11" width="6" height="8" rx="1.5" fill="#0c0a09" />
+                        <rect x="5" y="8" width="30" height="14" rx="2.8" fill="#15100d" />
+                        <rect x="8" y="10" width="24" height="10" rx="1.5" fill="#2a1f18" opacity="0.5" />
+                        <rect x="34" y="11.5" width="5" height="7" rx="0.6" fill="#b8923a" stroke="#7a6424" stroke-width="0.35" />
+                        <path d="M39 9 L192 10.2 L192 17.8 L39 19 Z" fill="#b07d3d" />
+                        <path d="M39 10 L192 11 L192 17 L39 18 Z" fill="#d4a574" opacity="0.45" />
+                        <path d="M52 11.5 L185 12.3 L185 15.7 L52 16.5 Z" fill="#fff" opacity="0.1" />
+                        <path d="M48 12 L178 12.8 L178 15.2 L48 16 Z" fill="#5c3d1e" opacity="0.2" />
+                        <rect x="192" y="11" width="15" height="6" rx="1.1" fill="#f2ebe1" stroke="#c9c1b6" stroke-width="0.45" />
+                        <rect x="194.5" y="12.3" width="10" height="3.4" rx="0.45" fill="#fff" opacity="0.55" />
+                        <path d="M207 11.3 L238 13.6 L238 14.5 L207 16.7 Z" fill="#2e2824" />
+                        <ellipse cx="235.5" cy="14" rx="3.2" ry="3.4" fill="#12100e" />
+                      </svg>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    id="fixture-breaks-field-a"
+                    class="fixture-breaks-entry__input"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+              </div>
+              <div class="fixture-result-player-block">
+                <div class="fixture-result-player-row-main">
+                  <div id="fixture-result-label-b" class="fixture-result-player-name"></div>
+                  <div
+                    id="fixture-frame-racks-b"
+                    class="fixture-frame-racks-host"
+                    data-frame-racks-for="b"
+                    role="group"
+                    aria-label="Frames scored"
+                  ></div>
+                  <div class="fixture-frame-score-num" id="fixture-result-score-b-display">0</div>
+                </div>
+                <input type="hidden" id="fixture-result-score-b" value="0" />
+                <div class="fixture-breaks-entry">
+                  <div class="fixture-breaks-entry__meta">
+                    <label for="fixture-breaks-field-b" class="fixture-breaks-entry__label">Add Breaks</label>
+                    <div class="fixture-breaks-entry__cue" aria-hidden="true">
+                      <svg class="fixture-breaks-cue-svg" viewBox="0 0 240 28" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                        <rect x="0" y="11" width="6" height="8" rx="1.5" fill="#0c0a09" />
+                        <rect x="5" y="8" width="30" height="14" rx="2.8" fill="#15100d" />
+                        <rect x="8" y="10" width="24" height="10" rx="1.5" fill="#2a1f18" opacity="0.5" />
+                        <rect x="34" y="11.5" width="5" height="7" rx="0.6" fill="#b8923a" stroke="#7a6424" stroke-width="0.35" />
+                        <path d="M39 9 L192 10.2 L192 17.8 L39 19 Z" fill="#b07d3d" />
+                        <path d="M39 10 L192 11 L192 17 L39 18 Z" fill="#d4a574" opacity="0.45" />
+                        <path d="M52 11.5 L185 12.3 L185 15.7 L52 16.5 Z" fill="#fff" opacity="0.1" />
+                        <path d="M48 12 L178 12.8 L178 15.2 L48 16 Z" fill="#5c3d1e" opacity="0.2" />
+                        <rect x="192" y="11" width="15" height="6" rx="1.1" fill="#f2ebe1" stroke="#c9c1b6" stroke-width="0.45" />
+                        <rect x="194.5" y="12.3" width="10" height="3.4" rx="0.45" fill="#fff" opacity="0.55" />
+                        <path d="M207 11.3 L238 13.6 L238 14.5 L207 16.7 Z" fill="#2e2824" />
+                        <ellipse cx="235.5" cy="14" rx="3.2" ry="3.4" fill="#12100e" />
+                      </svg>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    id="fixture-breaks-field-b"
+                    class="fixture-breaks-entry__input"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+              </div>
+              <p id="fixture-result-msg" class="msg" hidden></p>
+              <div class="fixture-result-actions">
+                <button type="submit" class="btn fixture-result-btn fixture-result-btn--save" id="fixture-result-save"><span class="fixture-result-btn__text">Save</span></button>
+                <button type="button" class="btn fixture-result-btn fixture-result-btn--cancel" id="fixture-result-cancel"><span class="fixture-result-btn__text">Cancel</span></button>
+              </div>
+            </form>
+          </dialog>
         </div>
       </article>
     </main>

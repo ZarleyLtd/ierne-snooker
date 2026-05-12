@@ -1,58 +1,22 @@
 // League Standings Renderer Component
-// Handles both league-one/league-two and league-a/league-b variants
+// Operates on already-shaped league data (objects with keys
+// 'Player Name', P, W, L, '+/-', Pts) returned by ApiClient.
 
 const LeagueStandings = {
-  /**
-   * Process raw CSV data into league arrays
-   * @param {Array} data - Raw CSV data
-   * @param {number} startRow - Row index to start from (default: 3)
-   * @returns {Object} { leagueOne, leagueTwo }
-   */
-  processData: function(data, startRow = 3) {
-    const rows = data.slice(startRow);
-    const leagueOne = [];
-    const leagueTwo = [];
-    
-    rows.forEach(row => {
-      if (row[0] && row[0].trim()) {
-        leagueOne.push({
-          'Player Name': row[0].trim(),
-          P: row[1] || '',
-          W: row[2] || '',
-          L: row[3] || '',
-          '+/-': row[4] || '',
-          Pts: row[5] || ''
-        });
-      }
-      if (row[7] && row[7].trim()) {
-        leagueTwo.push({
-          'Player Name': row[7].trim(),
-          P: row[8] || '',
-          W: row[9] || '',
-          L: row[10] || '',
-          '+/-': row[11] || '',
-          Pts: row[12] || ''
-        });
-      }
-    });
-    
-    return { leagueOne, leagueTwo };
-  },
-  
   /**
    * Sort leagues by points, then plus/minus, then name
    * @param {Array} league - League array
    * @returns {Array} Sorted league array
    */
   sort: function(league) {
-    return league.sort((a, b) => {
+    return (league || []).slice().sort((a, b) => {
       const ptsDiff = Formatters.toInt(b.Pts) - Formatters.toInt(a.Pts);
       if (ptsDiff !== 0) return ptsDiff;
       
       const pmDiff = Formatters.toInt(b['+/-']) - Formatters.toInt(a['+/-']);
       if (pmDiff !== 0) return pmDiff;
       
-      return a['Player Name'].localeCompare(b['Player Name']);
+      return String(a['Player Name'] || '').localeCompare(String(b['Player Name'] || ''));
     });
   },
   
@@ -65,7 +29,7 @@ const LeagueStandings = {
     const container = document.getElementById(containerId);
     if (!container) return;
     
-    if (league.length === 0) {
+    if (!league || league.length === 0) {
       container.textContent = 'No players.';
       return;
     }

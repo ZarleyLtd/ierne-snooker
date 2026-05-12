@@ -1,115 +1,188 @@
-// Results Page - Match Results
+// Results Page — match results; admin can edit via same dialog as Fixtures
 
-const ResultsPage = {
+var ResultsPage = {
   KO_LABELS: {
-    'CS': 'Championship Semis',
-    'CF': 'Championship Final',
-    'PQ': 'Plate Quarters',
-    'PS': 'Plate Semis',
-    'PF': 'Plate Final'
+    CS: 'Championship Semis',
+    CF: 'Championship Final',
+    PQ: 'Plate Quarters',
+    PS: 'Plate Semis',
+    PF: 'Plate Final',
   },
-  
-  init: async function() {
-    const container = document.getElementById('results-list');
+
+  _listenersBound: false,
+
+  adminModeEvent: function () {
+    return typeof AdminMode !== 'undefined' ? AdminMode.EVENT_NAME : 'ierne-admin-mode-changed';
+  },
+
+  isAdmin: function () {
+    return typeof AdminMode !== 'undefined' && AdminMode.isUnlocked();
+  },
+
+  init: async function () {
+    var container = document.getElementById('results-list');
     if (!container) return;
-    
-    try {
-      const url = SheetsConfig.getSheetUrl('fixtures');
-      if (!url) {
-        container.innerHTML = '<p><em>Error: Invalid sheet configuration.</em></p>';
-        return;
+
+    var self = this;
+
+    if (!this._listenersBound) {
+      this._listenersBound = true;
+      window.addEventListener(this.adminModeEvent(), function () {
+        self.init().catch(function (e) {
+          console.error(e);
+        });
+      });
+
+      if (typeof FixturesPage !== 'undefined' && FixturesPage.RESULT_SAVED_EVENT) {
+        window.addEventListener(FixturesPage.RESULT_SAVED_EVENT, function () {
+          self.init().catch(function (e) {
+            console.error(e);
+          });
+        });
       }
-      
-      const data = await CsvLoader.load(url);
-      
-      // Only include rows where results exist
-      const rows = data.filter(r =>
-        r['Game Week'] && r['Player A'] && r['Player B'] &&
-        r['Result'] && r['Result'].trim() !== ''
-      );
-      
+    }
+
+    if (typeof FixturesPage !== 'undefined') {
+      FixturesPage.bindResultDialog();
+    }
+
+    try {
+      var result = await ApiClient.get({ action: 'getFixtures' });
+      var data = result.fixtures || [];
+
+      var rows = data.filter(function (r) {
+        return (
+          r['Game Week'] &&
+          r['Player A'] &&
+          r['Player B'] &&
+          r['Result'] &&
+          String(r['Result']).trim() !== ''
+        );
+      });
+
       if (rows.length === 0) {
         container.innerHTML = '<p><em>No results available yet.</em></p>';
         return;
       }
-      
-      // Group by game week
-      const { grouped, orderedWeeks } = this.groupByGameWeek(rows);
-      
-      // Render
-      this.renderGroups(container, grouped, orderedWeeks);
+
+      var groupedWeeks = this.groupByGameWeek(rows);
+
+      this.renderGroups(container, groupedWeeks.grouped, groupedWeeks.orderedWeeks);
     } catch (error) {
       console.error('Failed to load results:', error);
       container.innerHTML = '<p><em>Error loading results.</em></p>';
     }
   },
-  
-  groupByGameWeek: function(results) {
-    const grouped = {};
-    const orderedWeeks = [];
-    
-    results.forEach(r => {
-      const week = r['Game Week'].trim();
+
+  groupByGameWeek: function (results) {
+    var grouped = {};
+    var orderedWeeks = [];
+
+    results.forEach(function (r) {
+      var week = String(r['Game Week']).trim();
       if (!grouped[week]) {
         grouped[week] = [];
         orderedWeeks.push(week);
       }
       grouped[week].push(r);
     });
-    
-    return { grouped, orderedWeeks };
+
+    return { grouped: grouped, orderedWeeks: orderedWeeks };
   },
-  
-  renderGroups: function(container, grouped, orderedWeeks) {
-    orderedWeeks.forEach(week => {
-      const h3 = document.createElement('h3');
-      const num = parseInt(week);
+
+  renderGroups: function (container, grouped, orderedWeeks) {
+    var self = this;
+    container.innerHTML = '';
+
+    orderedWeeks.forEach(function (week) {
+      var h3 = document.createElement('h3');
+      var num = parseInt(week, 10);
       h3.textContent = isNaN(num)
-        ? (this.KO_LABELS[week] || week)
-        : `Game Week ${week}`;
+        ? self.KO_LABELS[week] || week
+        : 'Game Week ' + week;
       h3.style.marginTop = '1.5em';
       h3.style.marginBottom = '0.5em';
       h3.style.fontWeight = 'bold';
       h3.style.textAlign = 'center';
       container.appendChild(h3);
-      
-      // Render each result in order
-      grouped[week].forEach(match => {
-        const div = document.createElement('div');
+
+      grouped[week].forEach(function (match) {
+        var div = document.createElement('div');
         div.style.display = 'flex';
         div.style.justifyContent = 'center';
         div.style.alignItems = 'center';
         div.style.gap = '0.5em';
         div.style.margin = '0.3em 0';
         div.style.fontSize = '1.05em';
-        
-        const resultStr = match['Result'].trim();
-        const [aScore, bScore] = resultStr.split('-').map(s => parseInt(s.trim(), 10));
-        
-        const playerA = document.createElement('span');
+
+        var fid = String(match.fixtureId || '').trim();
+        div.setAttribute('data-fixture-id', fid);
+        div.setAttribute('data-player-a-id', String(match.playerAId || '').trim());
+        div.setAttribute('data-player-b-id', String(match.playerBId || '').trim());
+        div.setAttribute('data-player-a-name', match['Player A'] || '');
+        div.setAttribute('data-player-b-name', match['Player B'] || '');
+        div.setAttribute('data-match-date', match['Match Date'] || '');
+
+        var sa = match.scoreA != null && match.scoreA !== '' ? Number(match.scoreA) : 0;
+        var sb = match.scoreB != null && match.scoreB !== '' ? Number(match.scoreB) : 0;
+        if (!Number.isFinite(sa)) sa = 0;
+        if (!Number.isFinite(sb)) sb = 0;
+        div.setAttribute('data-prefill-score-a', String(sa));
+        div.setAttribute('data-prefill-score-b', String(sb));
+
+        var resultStr = String(match['Result']).trim();
+        var parts = resultStr.split('-');
+        var aScore = parseInt(parts[0] ? parts[0].trim() : '', 10);
+        var bScore = parseInt(parts[1] ? parts[1].trim() : '', 10);
+
+        var playerA = document.createElement('span');
         playerA.textContent = match['Player A'];
         playerA.style.flex = '1';
         playerA.style.textAlign = 'right';
-        if (aScore > bScore) playerA.style.fontWeight = 'bold';
-        
-        const result = document.createElement('span');
-        result.textContent = `[${resultStr}]`;
-        result.style.flex = '0 0 auto';
-        result.style.fontWeight = 'bold';
-        result.style.minWidth = '3.5em';
-        result.style.textAlign = 'center';
-        
-        const playerB = document.createElement('span');
+        if (!isNaN(aScore) && !isNaN(bScore) && aScore > bScore) playerA.style.fontWeight = 'bold';
+
+        var resultEl;
+        if (self.isAdmin() && fid && typeof FixturesPage !== 'undefined') {
+          resultEl = document.createElement('button');
+          resultEl.type = 'button';
+          resultEl.className = 'results-score-btn';
+          resultEl.textContent = '[' + resultStr + ']';
+          resultEl.setAttribute(
+            'aria-label',
+            'Edit result ' +
+              resultStr +
+              ': ' +
+              match['Player A'] +
+              ' vs ' +
+              match['Player B']
+          );
+          resultEl.addEventListener('click', function () {
+            FixturesPage.openResultDialog(div);
+          });
+        } else {
+          resultEl = document.createElement('span');
+          resultEl.textContent = '[' + resultStr + ']';
+          resultEl.style.flex = '0 0 auto';
+          resultEl.style.fontWeight = 'bold';
+          resultEl.style.minWidth = '3.5em';
+          resultEl.style.textAlign = 'center';
+        }
+        resultEl.style.flex = '0 0 auto';
+        resultEl.style.fontWeight = 'bold';
+        resultEl.style.minWidth = '3.5em';
+        resultEl.style.textAlign = 'center';
+
+        var playerB = document.createElement('span');
         playerB.textContent = match['Player B'];
         playerB.style.flex = '1';
         playerB.style.textAlign = 'left';
-        if (bScore > aScore) playerB.style.fontWeight = 'bold';
-        
+        if (!isNaN(aScore) && !isNaN(bScore) && bScore > aScore) playerB.style.fontWeight = 'bold';
+
         div.appendChild(playerA);
-        div.appendChild(result);
+        div.appendChild(resultEl);
         div.appendChild(playerB);
         container.appendChild(div);
       });
     });
-  }
+  },
 };

@@ -1,0 +1,7 @@
+project_id = "apps"
+
+[api]
+enabled = true
+
+[functions.ierne-api]
+verify_jwt = false

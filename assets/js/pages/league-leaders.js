@@ -10,39 +10,17 @@ const LeagueLeadersPlaceholder = {
     if (!hasPlaceholders) return;
     
     try {
-      const url = SheetsConfig.getSheetUrl('leagues');
-      if (!url) {
-        console.error('Invalid leagues sheet URL');
-        return;
-      }
-      
-      // This page relies on numeric column indexes (row[0], row[5], ...),
-      // so we must load CSV without PapaParse's `header:true`.
-      const data = await CsvLoader.load(url, {
-        header: false,
-        skipEmptyLines: true,
-      });
-      const dataRows = data.slice(3); // skip header rows
-      
-      const leagueA = [];
-      const leagueB = [];
-      
-      dataRows.forEach(row => {
-        if (row[0] && row[0].trim()) {
-          leagueA.push({
-            name: row[0].trim(),
-            Pts: Formatters.toInt(row[5], 0),
-            pm: Formatters.toInt(row[4], 0)
-          });
-        }
-        if (row[7] && row[7].trim()) {
-          leagueB.push({
-            name: row[7].trim(),
-            Pts: Formatters.toInt(row[12], 0),
-            pm: Formatters.toInt(row[11], 0)
-          });
-        }
-      });
+      const result = await ApiClient.get({ action: 'getStandings' });
+      const leagueA = (result.leagueA || []).map(r => ({
+        name: r['Player Name'],
+        Pts: Formatters.toInt(r.Pts, 0),
+        pm: Formatters.toInt(r['+/-'], 0)
+      }));
+      const leagueB = (result.leagueB || []).map(r => ({
+        name: r['Player Name'],
+        Pts: Formatters.toInt(r.Pts, 0),
+        pm: Formatters.toInt(r['+/-'], 0)
+      }));
       
       // Sort by points then plus/minus
       const sortFn = (a, b) => (b.Pts - a.Pts) || (b.pm - a.pm);

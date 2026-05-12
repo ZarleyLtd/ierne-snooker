@@ -9,15 +9,9 @@ const LeaguesPage = {
     if (!hasLeagueContainers) return;
     
     try {
-      const url = SheetsConfig.getSheetUrl('leagues');
-      if (!url) {
-        console.error('Invalid leagues sheet URL');
-        return;
-      }
-      
-      const data = await CsvLoader.load(url, { header: false, skipEmptyLines: true });
-      
-      const { leagueOne, leagueTwo } = LeagueStandings.processData(data);
+      const result = await ApiClient.get({ action: 'getStandings' });
+      const leagueOne = result.leagueA || [];
+      const leagueTwo = result.leagueB || [];
       
       const sortedOne = LeagueStandings.sort(leagueOne);
       const sortedTwo = LeagueStandings.sort(leagueTwo);
