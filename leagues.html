@@ -51,9 +51,9 @@
         }
       </style></noscript
     >
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="assets/js/config/sheets-config.js"></script>
-    <script src="assets/js/utils/csv-loader.js"></script>
+    <script src="assets/js/config/app-config.js"></script>
+    <script src="assets/js/utils/api-client.js"></script>
+    <script src="assets/js/utils/admin-mode.js"></script>
     <script src="assets/js/utils/formatters.js"></script>
     <script src="assets/js/utils/image-loader.js"></script>
     <script src="assets/js/components/knockout-renderer.js"></script>
@@ -63,6 +63,7 @@
     <script src="assets/js/pages/results.js"></script>
     <script src="assets/js/pages/leagues.js"></script>
     <script src="assets/js/pages/handicaps.js"></script>
+    <script src="assets/js/pages/top-breaks.js"></script>
     <script src="assets/js/pages/under-development.js"></script>
     <script src="assets/js/pages/league-leaders.js"></script>
     <script defer src="assets/js/main.js"></script>
@@ -102,6 +103,9 @@
           </li>
           <li>
             <a href="under-development.html" target="_self">Under Development</a>
+          </li>
+          <li>
+            <button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle">Unlock Admin Mode</button>
           </li>
         </ul>
       </nav>

@@ -46,9 +46,10 @@
       </style></noscript
     >
     <!-- Configuration -->
-    <script src="assets/js/config/sheets-config.js"></script>
+    <script src="assets/js/config/app-config.js"></script>
     <!-- Utilities -->
-    <script src="assets/js/utils/csv-loader.js"></script>
+    <script src="assets/js/utils/api-client.js"></script>
+    <script src="assets/js/utils/admin-mode.js"></script>
     <script src="assets/js/utils/formatters.js"></script>
     <script src="assets/js/utils/image-loader.js"></script>
     <!-- Components -->
@@ -60,6 +61,7 @@
     <script src="assets/js/pages/results.js"></script>
     <script src="assets/js/pages/leagues.js"></script>
     <script src="assets/js/pages/handicaps.js"></script>
+    <script src="assets/js/pages/top-breaks.js"></script>
     <script src="assets/js/pages/under-development.js"></script>
     <script src="assets/js/pages/league-leaders.js"></script>
     <!-- Main entry point -->
@@ -101,6 +103,9 @@
           <li>
             <a href="under-development.html" target="_self">Under Development</a>
           </li>
+          <li>
+            <button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle">Unlock Admin Mode</button>
+          </li>
         </ul>
       </nav>
     </header>
@@ -123,13 +128,10 @@
           </figure>
         </div>
         <div class="entry-wrapper content__entry">
-          <ol>
-            <li>Top </li>
-            <li>breakers</li>
-            <li>will</li>
-            <li>appear here</li>
+          <h2>Season <span id="topBreaksSeason">current</span></h2>
+          <ol id="topBreaksList" class="top-breaks-list">
+            <li class="top-breaks-list__empty">Loading top breaks&hellip;</li>
           </ol>
-          <p> </p>
         </div>
       </article>
     </main>
