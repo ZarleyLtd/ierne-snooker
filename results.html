@@ -135,7 +135,7 @@
                 <input type="date" id="fixture-result-date" required />
               </p>
               <div class="fixture-result-player-block">
-                <div class="fixture-result-player-row-main">
+                <div class="fixture-result-player-row fixture-result-player-row--top">
                   <div id="fixture-result-label-a" class="fixture-result-player-name"></div>
                   <div
                     id="fixture-frame-racks-a"
@@ -144,12 +144,13 @@
                     role="group"
                     aria-label="Frames scored"
                   ></div>
-                  <div class="fixture-frame-score-num" id="fixture-result-score-a-display">0</div>
                 </div>
-                <input type="hidden" id="fixture-result-score-a" value="0" />
-                <div class="fixture-breaks-entry">
-                  <div class="fixture-breaks-entry__meta">
-                    <label for="fixture-breaks-field-a" class="fixture-breaks-entry__label">Add Breaks</label>
+                <div class="fixture-result-player-row fixture-result-player-row--bottom">
+                  <div class="fixture-frame-score-num" id="fixture-result-score-a-display">0</div>
+                  <input type="hidden" id="fixture-result-score-a" value="0" />
+                  <div class="fixture-breaks-entry">
+                    <div class="fixture-breaks-entry__meta">
+                      <label for="fixture-breaks-field-a" class="fixture-breaks-entry__label">Breaks:</label>
                     <div class="fixture-breaks-entry__cue" aria-hidden="true">
                       <svg class="fixture-breaks-cue-svg" viewBox="0 0 240 28" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
                         <rect x="0" y="11" width="6" height="8" rx="1.5" fill="#0c0a09" />
@@ -175,9 +176,10 @@
                     spellcheck="false"
                   />
                 </div>
+                </div>
               </div>
               <div class="fixture-result-player-block">
-                <div class="fixture-result-player-row-main">
+                <div class="fixture-result-player-row fixture-result-player-row--top">
                   <div id="fixture-result-label-b" class="fixture-result-player-name"></div>
                   <div
                     id="fixture-frame-racks-b"
@@ -186,12 +188,13 @@
                     role="group"
                     aria-label="Frames scored"
                   ></div>
-                  <div class="fixture-frame-score-num" id="fixture-result-score-b-display">0</div>
                 </div>
-                <input type="hidden" id="fixture-result-score-b" value="0" />
-                <div class="fixture-breaks-entry">
-                  <div class="fixture-breaks-entry__meta">
-                    <label for="fixture-breaks-field-b" class="fixture-breaks-entry__label">Add Breaks</label>
+                <div class="fixture-result-player-row fixture-result-player-row--bottom">
+                  <div class="fixture-frame-score-num" id="fixture-result-score-b-display">0</div>
+                  <input type="hidden" id="fixture-result-score-b" value="0" />
+                  <div class="fixture-breaks-entry">
+                    <div class="fixture-breaks-entry__meta">
+                      <label for="fixture-breaks-field-b" class="fixture-breaks-entry__label">Breaks:</label>
                     <div class="fixture-breaks-entry__cue" aria-hidden="true">
                       <svg class="fixture-breaks-cue-svg" viewBox="0 0 240 28" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
                         <rect x="0" y="11" width="6" height="8" rx="1.5" fill="#0c0a09" />
@@ -216,6 +219,7 @@
                     autocomplete="off"
                     spellcheck="false"
                   />
+                </div>
                 </div>
               </div>
               <p id="fixture-result-msg" class="msg" hidden></p>

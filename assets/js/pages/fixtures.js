@@ -160,6 +160,12 @@ var FixturesPage = {
     if (w === side) {
       this._matchFrameWinners[frameIndex] = null;
     } else {
+      var maxWins = Math.ceil(this.FRAME_RACK_COUNT / 2);
+      var currentCount = 0;
+      for (var i = 0; i < this.FRAME_RACK_COUNT; i++) {
+        if (this._matchFrameWinners[i] === side) currentCount++;
+      }
+      if (currentCount >= maxWins) return;
       this._matchFrameWinners[frameIndex] = side;
     }
     this.refreshMatchFrameUI();
@@ -222,6 +228,8 @@ var FixturesPage = {
     }
 
     var self = this;
+    var maxWins = Math.ceil(this.FRAME_RACK_COUNT / 2);
+    var sideAtMax = { a: scoreA >= maxWins, b: scoreB >= maxWins };
     ['a', 'b'].forEach(function (side) {
       var host = document.getElementById('fixture-frame-racks-' + side);
       if (!host) return;
@@ -230,8 +238,10 @@ var FixturesPage = {
         var win = winners[idx];
         var mine = win === side;
         var lost = win !== null && win !== side;
+        var disable = sideAtMax[side] && !mine;
         rack.classList.toggle('fixture-frame-rack--on', mine);
         rack.classList.toggle('fixture-frame-rack--lost', lost);
+        rack.disabled = disable;
         rack.setAttribute('aria-pressed', mine ? 'true' : 'false');
         rack.setAttribute('aria-label', self.frameRackAriaLabel(idx, win, side));
       });
@@ -553,6 +563,16 @@ var FixturesPage = {
         'Remove this result from the database?\n\nFrames are 0–0, so the recorded score will be cleared and this fixture will show as having no result. Any breaks already saved for this match will be deleted.'
       );
       if (!confirmed) return;
+    }
+
+    if (!clearing && scoreA < 2 && scoreB < 2) {
+      if (msg) {
+        msg.textContent = 'There must be a winner!';
+        msg.hidden = false;
+        msg.classList.remove('msg--success');
+        msg.classList.add('msg--warning');
+      }
+      return;
     }
 
     var breaksA = this.collectBreakRowsForSubmit(pidA, 'a');
