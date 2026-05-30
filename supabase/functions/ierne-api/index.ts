@@ -1,38 +1,40 @@
 // Ierne Snooker League API
 // Single Edge Function exposing JSON read endpoints backed by the
-// `ierne_snooker` schema.
+// `ierne_snooker` schema, plus authenticated POST writes.
 //
-// We connect directly to Postgres (rather than going through PostgREST /
-// supabase-js `db.schema`) because the `ierne_snooker` schema is private to
-// this app and not registered in the project-wide Exposed Schemas list. This
-// keeps "all objects in that schema" exactly as requested.
+// We connect directly to Postgres (not PostgREST / supabase-js .schema)
+// because the `ierne_snooker` schema is not on the project's Exposed Schemas
+// list, so it stays private to this app.
 //
-// Actions:
-//   GET ?action=getFixtures   [&season=<id>]
-//       -> { success, fixtures: [...] }
-//   GET ?action=getStandings  [&season=<id>]
-//       -> { success, season, leagues: [{ leagueId, name, rows: [...] }] }
-//   GET ?action=getHandicaps
-//       -> { success, handicaps: [...full history...], latest: [...] }
-//   GET ?action=getPlayers    [&season=<id>] [&league=<id>]
-//       -> { success, players: [...] }
-//   GET ?action=getTopBreaks  [&season=<id>] [&league=<id>] [&limit=<n>]
-//       -> { success, breaks: [...] }
-//   GET ?action=getSeasons
-//       -> { success, seasons: [{ seasonId, name, startsOn, endsOn, isCurrent }] }
-//   GET ?action=getLeagues
-//       -> { success, leagues: [{ leagueId, name, displayOrder }] }
-//   GET ?action=getBreaksForFixture  &fixtureId=<uuid>
-//       -> { success, fixtureId, breaks: [{ breakId, playerId, value }] }
+// Read actions (GET):
+//   ?action=getCompetitions
+//   ?action=getCompetitionGroups  &compId=<id>
+//   ?action=getFixtures           [&comp=<id>] [&competitionType=<type>]
+//   ?action=getStandings          [&comp=<id>] [&competitionType=<type>]
+//   ?action=getHandicaps
+//   ?action=getPlayers            [&comp=<id>] [&group=<id>]
+//   ?action=getPlayerComps        &playerId=<id>
+//   ?action=getTopBreaks          [&comp=<id>] [&group=<id>] [&limit=<n>]
+//   ?action=getBreaksForFixture   &fixtureId=<uuid>
 //
-// Default season: the row in `seasons` with `is_current = true`.
+// Default competition: the row in `competitions` with `is_current = true` for
+// the requested or default `competitionType` (default: league).
 //
-// Authenticated POST (application/x-www-form-urlencoded, body field `data` JSON):
-//   { "action": "...", "data": { ... }, "adminToken": "<optional HMAC token>" }
+// Authenticated POST (Content-Type: application/x-www-form-urlencoded,
+// body field `data` JSON):
+//   { "action": "...", "data": { ... }, "adminToken": "<HMAC token>" }
 // Env IERNE_ADMIN_SECRET required for admin. Actions:
-//   adminLogin (pin only), upsertPlayer, upsertSeasonPlayer, upsertHandicap,
-//   upsertSeason, upsertLeague, upsertFixture, updateFixtureResult,
-//   upsertBreak, deleteBreak
+//   adminLogin, upsertCompetition, deleteCompetition,
+//   upsertCompetitionGroup, deleteCompetitionGroup,
+//   upsertCompetitionPlayer, upsertPlayer, upsertHandicap,
+//   upsertFixture, updateFixtureResult, upsertBreak, deleteBreak,
+//   deleteFixture, deleteHandicap, deletePlayer
+//
+// Standings ordering (Ierne tiebreak chain):
+//   1. points desc
+//   2. frame_diff desc
+//   3. head-to-head among tied players (h2h_points, then h2h_frame_diff)
+//   4. alphabetical (stable)
 
 import postgres from "https://deno.land/x/postgresjs@v3.4.4/mod.js";
 
@@ -57,7 +59,6 @@ function unauthorizedResponse(message = "Unauthorized"): Response {
   return jsonResponse({ success: false, error: message }, 401);
 }
 
-// Module-scoped pool (reused across warm invocations).
 let _sql: ReturnType<typeof postgres> | null = null;
 function db() {
   if (_sql) return _sql;
@@ -76,37 +77,36 @@ function db() {
 
 // ---------- Types -----------------------------------------------------------
 
-type PlayerRow = {
-  player_id: string;
-  player_name: string;
-  active: boolean;
-};
+type PlayerRow = { player_id: string; player_name: string; active: boolean };
 
-type LeagueRow = {
-  league_id: string;
-  name: string;
-  display_order: number;
-};
-
-type SeasonRow = {
-  season_id: string;
+type CompetitionRow = {
+  competition_id: string;
   name: string;
   starts_on: string | null;
   ends_on: string | null;
   is_current: boolean;
+  competition_type: "league" | "knockout";
+  parent_competition_id: string | null;
 };
 
-type SeasonPlayerRow = {
-  season_id: string;
-  league_id: string;
+type GroupRow = {
+  competition_id: string;
+  group_id: string;
+  name: string;
+  display_order: number;
+};
+
+type CompetitionPlayerRow = {
+  competition_id: string;
+  group_id: string;
   player_id: string;
 };
 
 type FixtureRow = {
   fixture_id: string;
-  season_id: string;
-  league_id: string | null;
-  stage: "league" | "knockout";
+  competition_id: string;
+  group_id: string | null;
+  stage: "group" | "knockout";
   round_label: string;
   player_a_id: string;
   player_b_id: string;
@@ -117,8 +117,8 @@ type FixtureRow = {
 };
 
 type StandingRow = {
-  season_id: string;
-  league_id: string;
+  competition_id: string;
+  group_id: string;
   player_id: string;
   played: number;
   won: number;
@@ -129,8 +129,8 @@ type StandingRow = {
 };
 
 type HeadToHeadRow = {
-  season_id: string;
-  league_id: string;
+  competition_id: string;
+  group_id: string;
   player_id: string;
   opponent_id: string;
   played: number;
@@ -153,7 +153,7 @@ type BreakLeaderRow = {
   value: number;
   player_id: string;
   player_name: string;
-  league_id: string | null;
+  group_id: string | null;
   round_label: string;
   stage: string;
   match_date: string | null;
@@ -171,6 +171,11 @@ function buildPlayerMap(players: PlayerRow[]): Map<string, PlayerRow> {
   return map;
 }
 
+function normalizeCompetitionType(raw: string | null): "league" | "knockout" {
+  const t = String(raw ?? "league").trim().toLowerCase();
+  return t === "knockout" ? "knockout" : "league";
+}
+
 async function loadAllPlayers(): Promise<PlayerRow[]> {
   const sql = db();
   const rows = await sql<PlayerRow[]>`
@@ -181,49 +186,88 @@ async function loadAllPlayers(): Promise<PlayerRow[]> {
   return rows as unknown as PlayerRow[];
 }
 
-async function resolveSeasonId(requested: string | null): Promise<string> {
+async function resolveCompId(
+  requested: string | null,
+  competitionTypeParam: string | null,
+): Promise<string> {
   const sql = db();
+  const competitionType = normalizeCompetitionType(competitionTypeParam);
+
   if (requested) {
-    const found = await sql<SeasonRow[]>`
-      select season_id, name, starts_on, ends_on, is_current
-      from ierne_snooker.seasons
-      where season_id = ${requested}
+    const found = await sql<CompetitionRow[]>`
+      select competition_id, name, starts_on, ends_on, is_current,
+             competition_type, parent_competition_id
+      from ierne_snooker.competitions
+      where competition_id = ${requested}
     `;
-    if (!found.length) throw new Error(`Unknown season: ${requested}`);
-    return (found[0] as unknown as SeasonRow).season_id;
+    if (!found.length) throw new Error(`Unknown competition: ${requested}`);
+    return (found[0] as unknown as CompetitionRow).competition_id;
   }
-  const current = await sql<SeasonRow[]>`
-    select season_id, name, starts_on, ends_on, is_current
-    from ierne_snooker.seasons
+
+  const current = await sql<CompetitionRow[]>`
+    select competition_id, name, starts_on, ends_on, is_current,
+           competition_type, parent_competition_id
+    from ierne_snooker.competitions
     where is_current = true
+      and competition_type = ${competitionType}
+    order by starts_on desc nulls last, competition_id asc
     limit 1
   `;
-  if (!current.length) throw new Error("No current season is set");
-  return (current[0] as unknown as SeasonRow).season_id;
+  if (!current.length) {
+    throw new Error(`No current ${competitionType} competition is set`);
+  }
+  return (current[0] as unknown as CompetitionRow).competition_id;
 }
 
-async function loadLeagues(): Promise<LeagueRow[]> {
+async function loadCompetitionGroups(compId: string): Promise<GroupRow[]> {
   const sql = db();
-  const rows = await sql<LeagueRow[]>`
-    select league_id, name, display_order
-    from ierne_snooker.leagues
-    order by display_order asc, league_id asc
+  const rows = await sql<GroupRow[]>`
+    select competition_id, group_id, name, display_order
+    from ierne_snooker.competition_groups
+    where competition_id = ${compId}
+    order by display_order asc, group_id asc
   `;
-  return rows as unknown as LeagueRow[];
+  return rows as unknown as GroupRow[];
 }
 
-// ---------- Tiebreaker ------------------------------------------------------
-//
-// Standings are ordered by:
-//   1. points desc
-//   2. frame_diff desc
-//   3. head-to-head (mini-league among the tied players)
-//   4. otherwise leave alphabetical / stable
-//
-// For the H2H step we form groups of rows tied on (points, frame_diff). For
-// each group of size >= 2 we look up the H2H rows restricted to those player
-// IDs and re-rank by (sum of h2h_points against tied opponents, then sum of
-// h2h_frame_diff against tied opponents).
+const KNOCKOUT_GROUP_ID = "ko";
+
+async function ensureKnockoutCompGroup(compId: string): Promise<void> {
+  const sql = db();
+  await sql`
+    insert into ierne_snooker.competition_groups (
+      competition_id, group_id, name, display_order
+    ) values (${compId}, ${KNOCKOUT_GROUP_ID}, 'Knockout pool', 0)
+    on conflict (competition_id, group_id) do nothing
+  `;
+}
+
+async function removeKnockoutCompGroupIfSafe(compId: string): Promise<void> {
+  const sql = db();
+  const [fx, cp] = await Promise.all([
+    sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.fixtures
+         where competition_id = ${compId} and group_id = ${KNOCKOUT_GROUP_ID}
+      ) as ok
+    `,
+    sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.competition_players
+         where competition_id = ${compId} and group_id = ${KNOCKOUT_GROUP_ID}
+      ) as ok
+    `,
+  ]);
+  if (Boolean((fx[0] as { ok: boolean }).ok) || Boolean((cp[0] as { ok: boolean }).ok)) {
+    return;
+  }
+  await sql`
+    delete from ierne_snooker.competition_groups
+     where competition_id = ${compId} and group_id = ${KNOCKOUT_GROUP_ID}
+  `;
+}
+
+// ---------- Ierne tiebreaker ------------------------------------------------
 
 type ShapedRow = {
   playerId: string;
@@ -241,19 +285,17 @@ function applyHeadToHead(
   h2h: HeadToHeadRow[],
 ): ShapedRow[] {
   if (rows.length < 2) return rows;
-  // Sort by primary keys first.
+
   const sorted = [...rows].sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.frameDiff !== a.frameDiff) return b.frameDiff - a.frameDiff;
     return a.playerName.localeCompare(b.playerName);
   });
 
-  // Index H2H rows by (player, opponent).
   const h2hKey = (a: string, b: string) => `${a}|${b}`;
   const h2hMap = new Map<string, HeadToHeadRow>();
   for (const r of h2h) h2hMap.set(h2hKey(r.player_id, r.opponent_id), r);
 
-  // Walk groups tied on (points, frame_diff).
   const result: ShapedRow[] = [];
   let i = 0;
   while (i < sorted.length) {
@@ -272,7 +314,6 @@ function applyHeadToHead(
       continue;
     }
 
-    // Mini-league: H2H points + H2H frame diff among the tied players only.
     const tiedIds = group.map((g) => g.playerId);
     const tiedSet = new Set(tiedIds);
     const miniStats = new Map<string, { miniPoints: number; miniFrameDiff: number }>();
@@ -280,9 +321,9 @@ function applyHeadToHead(
     for (const a of tiedIds) {
       for (const b of tiedIds) {
         if (a === b) continue;
+        if (!tiedSet.has(b)) continue;
         const row = h2hMap.get(h2hKey(a, b));
         if (!row) continue;
-        if (!tiedSet.has(b)) continue;
         const stats = miniStats.get(a)!;
         stats.miniPoints += Number(row.h2h_points) || 0;
         stats.miniFrameDiff += Number(row.h2h_frame_diff) || 0;
@@ -302,62 +343,227 @@ function applyHeadToHead(
   return result;
 }
 
-// ---------- Action handlers -------------------------------------------------
+// ---------- GET handlers ----------------------------------------------------
+
+async function handleGetCompetitions(): Promise<Response> {
+  const sql = db();
+  const rows = await sql<CompetitionRow[]>`
+    select competition_id, name,
+           to_char(starts_on, 'YYYY-MM-DD') as starts_on,
+           to_char(ends_on, 'YYYY-MM-DD') as ends_on,
+           is_current, competition_type, parent_competition_id
+      from ierne_snooker.competitions
+      order by starts_on desc nulls last, competition_id desc
+  `;
+  return jsonResponse({
+    success: true,
+    competitions: (rows as unknown as CompetitionRow[]).map((r) => ({
+      compId: r.competition_id,
+      name: r.name,
+      startsOn: r.starts_on,
+      endsOn: r.ends_on,
+      isCurrent: r.is_current,
+      competitionType: r.competition_type,
+      parentCompId: r.parent_competition_id,
+    })),
+  });
+}
+
+async function handleGetCompetitionGroups(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const compId = String(url.searchParams.get("compId") ?? "").trim();
+  if (!compId) return errorResponse("compId required");
+
+  const sql = db();
+  const compRows = await sql<CompetitionRow[]>`
+    select competition_id, name, competition_type, is_current, parent_competition_id
+      from ierne_snooker.competitions
+     where competition_id = ${compId}
+  `;
+  if (!compRows.length) return errorResponse("Competition not found", 404);
+  const comp = compRows[0] as unknown as CompetitionRow;
+
+  if (comp.competition_type === "knockout") {
+    await ensureKnockoutCompGroup(compId);
+  }
+
+  const rows = await sql<{
+    group_id: string;
+    name: string;
+    display_order: number;
+    player_count: number;
+  }[]>`
+    select cg.group_id,
+           cg.name,
+           cg.display_order,
+           coalesce(pc.cnt, 0)::int as player_count
+      from ierne_snooker.competition_groups cg
+      left join lateral (
+        select count(*)::int as cnt
+          from ierne_snooker.competition_players cp
+         where cp.competition_id = cg.competition_id
+           and cp.group_id = cg.group_id
+      ) pc on true
+     where cg.competition_id = ${compId}
+       and (
+         ${comp.competition_type} = 'knockout'
+         or cg.group_id <> ${KNOCKOUT_GROUP_ID}
+       )
+     order by cg.display_order asc, cg.group_id asc
+  `;
+
+  return jsonResponse({
+    success: true,
+    competition: {
+      compId: comp.competition_id,
+      name: comp.name,
+      competitionType: comp.competition_type,
+      isCurrent: comp.is_current,
+      parentCompId: comp.parent_competition_id,
+    },
+    groups: rows.map((r) => ({
+      groupId: r.group_id,
+      name: r.name,
+      displayOrder: r.display_order,
+      playerCount: r.player_count,
+    })),
+  });
+}
 
 async function handleGetPlayers(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const seasonParam = url.searchParams.get("season");
-  const leagueParam = url.searchParams.get("league");
+  const compParam = url.searchParams.get("comp");
+  const groupParam = url.searchParams.get("group");
 
-  if (!seasonParam && !leagueParam) {
-    const players = await loadAllPlayers();
+  if (!compParam && !groupParam) {
+    const sql = db();
+    const rows = await sql<{
+      player_id: string;
+      player_name: string;
+      active: boolean;
+      comp_count: number;
+      match_count: number;
+    }[]>`
+      select p.player_id,
+             p.player_name,
+             p.active,
+             coalesce(cc.comp_count, 0)::int as comp_count,
+             coalesce(mc.match_count, 0)::int as match_count
+        from ierne_snooker.players p
+        left join lateral (
+          select count(*)::int as comp_count
+            from (
+              select cp.competition_id
+                from ierne_snooker.competition_players cp
+               where cp.player_id = p.player_id
+              union
+              select f.competition_id
+                from ierne_snooker.fixtures f
+               where f.player_a_id = p.player_id or f.player_b_id = p.player_id
+            ) combined
+        ) cc on true
+        left join lateral (
+          select count(*)::int as match_count
+            from ierne_snooker.fixtures f
+           where (f.player_a_id = p.player_id or f.player_b_id = p.player_id)
+             and f.score_a is not null
+             and f.score_b is not null
+        ) mc on true
+       order by p.player_name asc
+    `;
     return jsonResponse({
       success: true,
-      players: players.map((p) => ({
+      players: rows.map((p) => ({
         playerId: p.player_id,
         playerName: p.player_name,
         active: p.active,
+        compCount: p.comp_count,
+        matchCount: p.match_count,
       })),
     });
   }
 
-  const seasonId = await resolveSeasonId(seasonParam);
+  const compId = await resolveCompId(compParam, url.searchParams.get("competitionType"));
   const sql = db();
-  const rows = await sql<(SeasonPlayerRow & { player_name: string; active: boolean })[]>`
-    select sp.season_id, sp.league_id, sp.player_id, p.player_name, p.active
-    from ierne_snooker.season_players sp
-    join ierne_snooker.players p on p.player_id = sp.player_id
-    where sp.season_id = ${seasonId}
-      and (${leagueParam}::text is null or sp.league_id = ${leagueParam})
+  const rows = await sql<(CompetitionPlayerRow & { player_name: string; active: boolean })[]>`
+    select cp.competition_id, cp.group_id, cp.player_id, p.player_name, p.active
+    from ierne_snooker.competition_players cp
+    join ierne_snooker.players p on p.player_id = cp.player_id
+    where cp.competition_id = ${compId}
+      and (${groupParam}::text is null or cp.group_id = ${groupParam})
     order by p.player_name asc
   `;
   return jsonResponse({
     success: true,
-    season: seasonId,
-    players: (rows as unknown as Array<SeasonPlayerRow & { player_name: string; active: boolean }>).map((r) => ({
+    compId,
+    players: (rows as unknown as Array<CompetitionPlayerRow & { player_name: string; active: boolean }>).map((r) => ({
       playerId: r.player_id,
       playerName: r.player_name,
-      league: r.league_id,
+      groupId: r.group_id,
       active: r.active,
+    })),
+  });
+}
+
+async function handleGetPlayerComps(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const playerId = String(url.searchParams.get("playerId") ?? "").trim();
+  if (!playerId) return errorResponse("playerId required");
+
+  const sql = db();
+  const rows = await sql<{
+    competition_id: string;
+    name: string;
+    is_current: boolean;
+    competition_type: string;
+    parent_competition_id: string | null;
+  }[]>`
+    select competition_id, name, is_current, competition_type, parent_competition_id
+    from (
+      select c.competition_id, c.name, c.is_current, c.competition_type,
+             c.parent_competition_id, c.starts_on
+        from ierne_snooker.competition_players cp
+        join ierne_snooker.competitions c on c.competition_id = cp.competition_id
+       where cp.player_id = ${playerId}
+      union
+      select c.competition_id, c.name, c.is_current, c.competition_type,
+             c.parent_competition_id, c.starts_on
+        from ierne_snooker.fixtures f
+        join ierne_snooker.competitions c on c.competition_id = f.competition_id
+       where f.player_a_id = ${playerId} or f.player_b_id = ${playerId}
+    ) combined
+    order by starts_on desc nulls last, competition_id desc
+  `;
+  return jsonResponse({
+    success: true,
+    playerId,
+    competitions: rows.map((r) => ({
+      compId: r.competition_id,
+      name: r.name,
+      isCurrent: r.is_current,
+      competitionType: r.competition_type,
+      parentCompId: r.parent_competition_id,
     })),
   });
 }
 
 async function handleGetFixtures(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const seasonParam = url.searchParams.get("season");
-  const seasonId = await resolveSeasonId(seasonParam);
+  const compId = await resolveCompId(
+    url.searchParams.get("comp"),
+    url.searchParams.get("competitionType"),
+  );
 
   const sql = db();
   const [players, fixtureRows] = await Promise.all([
     loadAllPlayers(),
     sql<FixtureRow[]>`
-      select fixture_id, season_id, league_id, stage, round_label,
+      select fixture_id, competition_id, group_id, stage, round_label,
              player_a_id, player_b_id,
              to_char(match_date, 'YYYY-MM-DD') as match_date,
              score_a, score_b, sort_order
       from ierne_snooker.fixtures
-      where season_id = ${seasonId}
+      where competition_id = ${compId}
       order by sort_order asc, round_label asc
     `,
   ]);
@@ -372,7 +578,7 @@ async function handleGetFixtures(req: Request): Promise<Response> {
     return {
       fixtureId: r.fixture_id,
       "Game Week": r.round_label,
-      "League": r.league_id,
+      "Group": r.group_id,
       "Stage": r.stage,
       "Player A": a?.player_name ?? "",
       "Player B": b?.player_name ?? "",
@@ -386,96 +592,90 @@ async function handleGetFixtures(req: Request): Promise<Response> {
     };
   });
 
-  return jsonResponse({ success: true, season: seasonId, fixtures });
+  return jsonResponse({ success: true, compId, fixtures });
 }
 
 async function handleGetStandings(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const seasonParam = url.searchParams.get("season");
-  const seasonId = await resolveSeasonId(seasonParam);
+  const compId = await resolveCompId(
+    url.searchParams.get("comp"),
+    url.searchParams.get("competitionType"),
+  );
 
   const sql = db();
-  const [players, leagues, members, standings, h2h] = await Promise.all([
+  const [players, groups, members, standings, h2h] = await Promise.all([
     loadAllPlayers(),
-    loadLeagues(),
-    sql<SeasonPlayerRow[]>`
-      select season_id, league_id, player_id
-      from ierne_snooker.season_players
-      where season_id = ${seasonId}
+    loadCompetitionGroups(compId),
+    sql<CompetitionPlayerRow[]>`
+      select competition_id, group_id, player_id
+      from ierne_snooker.competition_players
+      where competition_id = ${compId}
     `,
     sql<StandingRow[]>`
-      select season_id, league_id, player_id, played, won, lost, drawn,
+      select competition_id, group_id, player_id, played, won, lost, drawn,
              frame_diff, points
       from ierne_snooker.league_standings_v
-      where season_id = ${seasonId}
+      where competition_id = ${compId}
     `,
     sql<HeadToHeadRow[]>`
-      select season_id, league_id, player_id, opponent_id,
+      select competition_id, group_id, player_id, opponent_id,
              played, h2h_wins, h2h_losses, h2h_frame_diff, h2h_points
       from ierne_snooker.head_to_head_v
-      where season_id = ${seasonId}
+      where competition_id = ${compId}
     `,
   ]);
+
   const playerMap = buildPlayerMap(players);
   const standingsMap = new Map<string, StandingRow>();
   for (const s of (standings as unknown as StandingRow[])) {
-    standingsMap.set(`${s.league_id}|${s.player_id}`, s);
+    standingsMap.set(`${s.group_id}|${s.player_id}`, s);
   }
 
-  // Group members by league.
-  const membersByLeague = new Map<string, SeasonPlayerRow[]>();
-  for (const m of (members as unknown as SeasonPlayerRow[])) {
-    const list = membersByLeague.get(m.league_id) ?? [];
+  const membersByGroup = new Map<string, CompetitionPlayerRow[]>();
+  for (const m of (members as unknown as CompetitionPlayerRow[])) {
+    const list = membersByGroup.get(m.group_id) ?? [];
     list.push(m);
-    membersByLeague.set(m.league_id, list);
+    membersByGroup.set(m.group_id, list);
   }
 
   const h2hAll = h2h as unknown as HeadToHeadRow[];
 
-  const leaguesOut = (leagues as LeagueRow[]).map((lg) => {
-    const memberRows = membersByLeague.get(lg.league_id) ?? [];
-    const shaped: ShapedRow[] = memberRows.map((m) => {
-      const s = standingsMap.get(`${lg.league_id}|${m.player_id}`);
-      const player = playerMap.get(m.player_id);
-      return {
-        playerId: m.player_id,
-        playerName: player?.player_name ?? m.player_id,
-        played: Number(s?.played ?? 0),
-        won: Number(s?.won ?? 0),
-        lost: Number(s?.lost ?? 0),
-        drawn: Number(s?.drawn ?? 0),
-        frameDiff: Number(s?.frame_diff ?? 0),
-        points: Number(s?.points ?? 0),
-      };
+  const groupsOut = (groups as GroupRow[])
+    .filter((g) => g.group_id !== KNOCKOUT_GROUP_ID)
+    .map((grp) => {
+      const memberRows = membersByGroup.get(grp.group_id) ?? [];
+      const shaped: ShapedRow[] = memberRows.map((m) => {
+        const s = standingsMap.get(`${grp.group_id}|${m.player_id}`);
+        const player = playerMap.get(m.player_id);
+        return {
+          playerId: m.player_id,
+          playerName: player?.player_name ?? m.player_id,
+          played: Number(s?.played ?? 0),
+          won: Number(s?.won ?? 0),
+          lost: Number(s?.lost ?? 0),
+          drawn: Number(s?.drawn ?? 0),
+          frameDiff: Number(s?.frame_diff ?? 0),
+          points: Number(s?.points ?? 0),
+        };
+      });
+      const groupH2h = h2hAll.filter((r) => r.group_id === grp.group_id);
+      const ordered = applyHeadToHead(shaped, groupH2h);
+      const rows = ordered.map((r) => ({
+        "Player Name": r.playerName,
+        P: r.played,
+        W: r.won,
+        L: r.lost,
+        D: r.drawn,
+        "+/-": r.frameDiff,
+        Pts: r.points,
+      }));
+      return { groupId: grp.group_id, name: grp.name, rows };
     });
-    const leagueH2h = h2hAll.filter((r) => r.league_id === lg.league_id);
-    const ordered = applyHeadToHead(shaped, leagueH2h);
-    const rows = ordered.map((r) => ({
-      "Player Name": r.playerName,
-      P: r.played,
-      W: r.won,
-      L: r.lost,
-      D: r.drawn,
-      "+/-": r.frameDiff,
-      Pts: r.points,
-    }));
-    return {
-      leagueId: lg.league_id,
-      name: lg.name,
-      rows,
-    };
-  });
-
-  // Backwards-compatible flat fields the existing pages still consume.
-  const compatA = leaguesOut.find((l) => l.leagueId === "A")?.rows ?? [];
-  const compatB = leaguesOut.find((l) => l.leagueId === "B")?.rows ?? [];
 
   return jsonResponse({
     success: true,
-    season: seasonId,
-    leagues: leaguesOut,
-    leagueA: compatA,
-    leagueB: compatB,
+    compId,
+    groups: groupsOut,
   });
 }
 
@@ -501,15 +701,8 @@ async function handleGetHandicaps(): Promise<Response> {
     "Handicap Date": r.effective_date,
   }));
 
-  // Latest per player by effective_date desc (already sorted desc above)
   const seen = new Set<string>();
-  const latest: Array<{
-    handicapId: string;
-    playerId: string;
-    "Player Name": string;
-    "Handicap": number;
-    "Handicap Date": string;
-  }> = [];
+  const latest: typeof all = [];
   for (const r of rows) {
     if (seen.has(r.player_id)) continue;
     seen.add(r.player_id);
@@ -521,22 +714,24 @@ async function handleGetHandicaps(): Promise<Response> {
       "Handicap Date": r.effective_date,
     });
   }
-  latest.sort((a, b) => a["Player Name"].localeCompare(b["Player Name"]));
+  latest.sort((a, b) => String(a["Player Name"]).localeCompare(String(b["Player Name"])));
 
   return jsonResponse({ success: true, handicaps: all, latest });
 }
 
 async function handleGetTopBreaks(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const seasonParam = url.searchParams.get("season");
-  const leagueParam = url.searchParams.get("league");
+  const groupParam = url.searchParams.get("group");
   const limitParam = url.searchParams.get("limit");
 
   const limitRaw = limitParam ? parseInt(limitParam, 10) : 20;
   const limit = Number.isFinite(limitRaw) && limitRaw > 0 && limitRaw <= 200
     ? limitRaw
     : 20;
-  const seasonId = await resolveSeasonId(seasonParam);
+  const compId = await resolveCompId(
+    url.searchParams.get("comp"),
+    url.searchParams.get("competitionType"),
+  );
 
   const sql = db();
   const rows = await sql<BreakLeaderRow[]>`
@@ -545,7 +740,7 @@ async function handleGetTopBreaks(req: Request): Promise<Response> {
            b.value,
            b.player_id,
            p.player_name,
-           f.league_id,
+           f.group_id,
            f.round_label,
            f.stage,
            to_char(f.match_date, 'YYYY-MM-DD') as match_date,
@@ -558,8 +753,8 @@ async function handleGetTopBreaks(req: Request): Promise<Response> {
       join ierne_snooker.players  p on p.player_id  = b.player_id
       join ierne_snooker.players  pa on pa.player_id = f.player_a_id
       join ierne_snooker.players  pb on pb.player_id = f.player_b_id
-     where f.season_id = ${seasonId}
-       and (${leagueParam}::text is null or f.league_id = ${leagueParam})
+     where f.competition_id = ${compId}
+       and (${groupParam}::text is null or f.group_id = ${groupParam})
      order by b.value desc, f.match_date asc nulls last, p.player_name asc
      limit ${limit}
   `;
@@ -574,7 +769,7 @@ async function handleGetTopBreaks(req: Request): Promise<Response> {
       fixtureId: r.fixture_id,
       "Player Name": r.player_name,
       "Break": r.value,
-      "League": r.league_id,
+      "Group": r.group_id,
       "Stage": r.stage,
       "Round": r.round_label,
       "Match Date": r.match_date ?? "",
@@ -582,7 +777,29 @@ async function handleGetTopBreaks(req: Request): Promise<Response> {
     };
   });
 
-  return jsonResponse({ success: true, season: seasonId, breaks });
+  return jsonResponse({ success: true, compId, breaks });
+}
+
+async function handleGetBreaksForFixture(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const fixtureId = url.searchParams.get("fixtureId")?.trim();
+  if (!fixtureId) return errorResponse("fixtureId required");
+  const sql = db();
+  const rows = await sql<{ break_id: string; player_id: string; value: number }[]>`
+    select break_id, player_id, value
+      from ierne_snooker.breaks
+     where fixture_id = ${fixtureId}::uuid
+     order by value desc, break_id asc
+  `;
+  return jsonResponse({
+    success: true,
+    fixtureId,
+    breaks: rows.map((r) => ({
+      breakId: r.break_id,
+      playerId: r.player_id,
+      value: Number(r.value),
+    })),
+  });
 }
 
 // ---------- Admin auth & POST payloads ------------------------------------
@@ -597,15 +814,20 @@ const ADMIN_TOKEN_TTL_SEC = 24 * 60 * 60;
 
 const ADMIN_POST_ACTIONS = new Set([
   "adminLogin",
+  "upsertCompetition",
+  "deleteCompetition",
+  "upsertCompetitionGroup",
+  "deleteCompetitionGroup",
+  "upsertCompetitionPlayer",
   "upsertPlayer",
-  "upsertSeasonPlayer",
   "upsertHandicap",
-  "upsertSeason",
-  "upsertLeague",
   "upsertFixture",
   "updateFixtureResult",
   "upsertBreak",
   "deleteBreak",
+  "deleteFixture",
+  "deleteHandicap",
+  "deletePlayer",
 ]);
 
 function getAdminSecret(): string {
@@ -724,48 +946,6 @@ async function requireAdmin(envelope: PostEnvelope): Promise<Response | null> {
   );
 }
 
-async function handleGetSeasons(): Promise<Response> {
-  const sql = db();
-  const rows = await sql<
-    {
-      season_id: string;
-      name: string;
-      starts_on: string | null;
-      ends_on: string | null;
-      is_current: boolean;
-    }[]
-  >`
-    select season_id, name,
-           to_char(starts_on, 'YYYY-MM-DD') as starts_on,
-           to_char(ends_on, 'YYYY-MM-DD') as ends_on,
-           is_current
-      from ierne_snooker.seasons
-      order by starts_on desc nulls last, season_id desc
-  `;
-  return jsonResponse({
-    success: true,
-    seasons: rows.map((r) => ({
-      seasonId: r.season_id,
-      name: r.name,
-      startsOn: r.starts_on,
-      endsOn: r.ends_on,
-      isCurrent: r.is_current,
-    })),
-  });
-}
-
-async function handleGetLeaguesPublic(): Promise<Response> {
-  const leagues = await loadLeagues();
-  return jsonResponse({
-    success: true,
-    leagues: leagues.map((l) => ({
-      leagueId: l.league_id,
-      name: l.name,
-      displayOrder: l.display_order,
-    })),
-  });
-}
-
 async function handleAdminLogin(data: Record<string, unknown>): Promise<Response> {
   const secret = getAdminSecret();
   if (!secret) return errorResponse("Admin login not configured", 503);
@@ -792,26 +972,35 @@ async function handleUpsertPlayer(data: Record<string, unknown>): Promise<Respon
   return jsonResponse({ success: true });
 }
 
-async function handleUpsertSeasonPlayer(data: Record<string, unknown>): Promise<Response> {
+async function handleUpsertCompetitionPlayer(data: Record<string, unknown>): Promise<Response> {
   const remove = Boolean(data.remove);
-  const seasonId = String(data.seasonId ?? "").trim();
+  const compId = String(data.compId ?? "").trim();
   const playerId = String(data.playerId ?? "").trim();
-  if (!seasonId || !playerId) return errorResponse("seasonId and playerId required");
+  if (!compId || !playerId) return errorResponse("compId and playerId required");
   const sql = db();
   if (remove) {
     await sql`
-      delete from ierne_snooker.season_players
-      where season_id = ${seasonId} and player_id = ${playerId}
+      delete from ierne_snooker.competition_players
+      where competition_id = ${compId} and player_id = ${playerId}
     `;
     return jsonResponse({ success: true });
   }
-  const leagueId = String(data.leagueId ?? "").trim();
-  if (!leagueId) return errorResponse("leagueId required when not removing");
+  const groupId = String(data.groupId ?? "").trim();
+  if (!groupId) return errorResponse("groupId required when not removing");
+  const [grp] = await sql<{ ok: boolean }[]>`
+    select exists(
+      select 1 from ierne_snooker.competition_groups
+       where competition_id = ${compId} and group_id = ${groupId}
+    ) as ok
+  `;
+  if (!Boolean((grp as { ok: boolean }).ok)) {
+    return errorResponse("That group is not part of this competition. Add the group first.");
+  }
   await sql`
-    insert into ierne_snooker.season_players (season_id, league_id, player_id, updated_at)
-    values (${seasonId}, ${leagueId}, ${playerId}, now())
-    on conflict (season_id, player_id) do update set
-      league_id = excluded.league_id,
+    insert into ierne_snooker.competition_players (competition_id, group_id, player_id, updated_at)
+    values (${compId}, ${groupId}, ${playerId}, now())
+    on conflict (competition_id, player_id) do update set
+      group_id = excluded.group_id,
       updated_at = now()
   `;
   return jsonResponse({ success: true });
@@ -849,54 +1038,144 @@ async function handleUpsertHandicap(data: Record<string, unknown>): Promise<Resp
   return jsonResponse({ success: true });
 }
 
-async function handleUpsertSeason(data: Record<string, unknown>): Promise<Response> {
-  const seasonId = String(data.seasonId ?? "").trim();
+async function handleUpsertCompetition(data: Record<string, unknown>): Promise<Response> {
+  const compId = String(data.compId ?? "").trim();
   const name = String(data.name ?? "").trim();
-  if (!seasonId || !name) return errorResponse("seasonId and name required");
+  if (!compId || !name) return errorResponse("compId and name required");
   const startsOn = data.startsOn ? String(data.startsOn) : null;
   const endsOn = data.endsOn ? String(data.endsOn) : null;
   const isCurrent = Boolean(data.isCurrent);
+  const competitionType = normalizeCompetitionType(
+    String(data.competitionType ?? data.competition_type ?? "league"),
+  );
+  const parentCompId = data.parentCompId != null && data.parentCompId !== ""
+    ? String(data.parentCompId).trim()
+    : null;
 
   const sql = db();
   await sql.begin(async (tx) => {
     if (isCurrent) {
       await tx`
-        update ierne_snooker.seasons
+        update ierne_snooker.competitions
         set is_current = false, updated_at = now()
-        where season_id <> ${seasonId}
+        where competition_type = ${competitionType}
+          and competition_id <> ${compId}
       `;
     }
     await tx`
-      insert into ierne_snooker.seasons (season_id, name, starts_on, ends_on, is_current)
-      values (${seasonId}, ${name}, ${startsOn}, ${endsOn}, ${isCurrent})
-      on conflict (season_id) do update set
+      insert into ierne_snooker.competitions (
+        competition_id, name, starts_on, ends_on, is_current,
+        competition_type, parent_competition_id
+      ) values (
+        ${compId}, ${name}, ${startsOn}, ${endsOn}, ${isCurrent},
+        ${competitionType}, ${parentCompId}
+      )
+      on conflict (competition_id) do update set
         name = excluded.name,
         starts_on = excluded.starts_on,
         ends_on = excluded.ends_on,
         is_current = excluded.is_current,
+        competition_type = excluded.competition_type,
+        parent_competition_id = excluded.parent_competition_id,
         updated_at = now()
     `;
   });
+
+  if (competitionType === "knockout") {
+    await ensureKnockoutCompGroup(compId);
+  } else {
+    await removeKnockoutCompGroupIfSafe(compId);
+  }
   return jsonResponse({ success: true });
 }
 
-async function handleUpsertLeague(data: Record<string, unknown>): Promise<Response> {
-  const leagueId = String(data.leagueId ?? "").trim();
+async function handleDeleteCompetition(data: Record<string, unknown>): Promise<Response> {
+  const compId = String(data.compId ?? "").trim();
+  if (!compId) return errorResponse("compId required");
+  const sql = db();
+  const [fx, children] = await Promise.all([
+    sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.fixtures where competition_id = ${compId}
+      ) as ok
+    `,
+    sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.competitions
+         where parent_competition_id = ${compId}
+      ) as ok
+    `,
+  ]);
+  if (Boolean((fx[0] as { ok: boolean }).ok)) {
+    return errorResponse(
+      "Cannot delete competition: fixtures still exist. Delete or move those fixtures first.",
+      409,
+    );
+  }
+  if (Boolean((children[0] as { ok: boolean }).ok)) {
+    return errorResponse(
+      "Cannot delete competition: child competitions still reference it.",
+      409,
+    );
+  }
+  await sql`delete from ierne_snooker.competitions where competition_id = ${compId}`;
+  return jsonResponse({ success: true });
+}
+
+async function handleUpsertCompetitionGroup(data: Record<string, unknown>): Promise<Response> {
+  const compId = String(data.compId ?? "").trim();
+  const groupId = String(data.groupId ?? "").trim();
   const name = String(data.name ?? "").trim();
   const displayOrderRaw = data.displayOrder;
   const displayOrder = displayOrderRaw !== undefined && displayOrderRaw !== ""
     ? Number(displayOrderRaw)
     : 0;
-  if (!leagueId || !name) return errorResponse("leagueId and name required");
+  if (!compId || !groupId || !name) {
+    return errorResponse("compId, groupId and name required");
+  }
   if (!Number.isFinite(displayOrder)) return errorResponse("displayOrder must be a number");
+
   const sql = db();
   await sql`
-    insert into ierne_snooker.leagues (league_id, name, display_order)
-    values (${leagueId}, ${name}, ${Math.trunc(displayOrder)})
-    on conflict (league_id) do update set
+    insert into ierne_snooker.competition_groups (
+      competition_id, group_id, name, display_order
+    ) values (${compId}, ${groupId}, ${name}, ${Math.trunc(displayOrder)})
+    on conflict (competition_id, group_id) do update set
       name = excluded.name,
       display_order = excluded.display_order,
       updated_at = now()
+  `;
+  return jsonResponse({ success: true });
+}
+
+async function handleDeleteCompetitionGroup(data: Record<string, unknown>): Promise<Response> {
+  const compId = String(data.compId ?? "").trim();
+  const groupId = String(data.groupId ?? "").trim();
+  if (!compId || !groupId) return errorResponse("compId and groupId required");
+  const sql = db();
+  const [fx, cp] = await Promise.all([
+    sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.fixtures
+         where competition_id = ${compId} and group_id = ${groupId}
+      ) as ok
+    `,
+    sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.competition_players
+         where competition_id = ${compId} and group_id = ${groupId}
+      ) as ok
+    `,
+  ]);
+  if (Boolean((fx[0] as { ok: boolean }).ok) || Boolean((cp[0] as { ok: boolean }).ok)) {
+    return errorResponse(
+      "Cannot delete group: players or fixtures still reference it for this competition.",
+      409,
+    );
+  }
+  await sql`
+    delete from ierne_snooker.competition_groups
+     where competition_id = ${compId} and group_id = ${groupId}
   `;
   return jsonResponse({ success: true });
 }
@@ -909,15 +1188,15 @@ function parseNullableScore(raw: unknown): number | null {
 
 async function handleUpsertFixture(data: Record<string, unknown>): Promise<Response> {
   const fixtureId = data.fixtureId ? String(data.fixtureId).trim() : "";
-  const seasonId = String(data.seasonId ?? "").trim();
+  const compId = String(data.compId ?? "").trim();
   const stage = String(data.stage ?? "").trim();
   const roundLabel = String(data.roundLabel ?? "").trim();
   const playerAId = String(data.playerAId ?? "").trim();
   const playerBId = String(data.playerBId ?? "").trim();
-  const leagueIdRaw = data.leagueId;
-  const leagueId = leagueIdRaw === undefined || leagueIdRaw === null || leagueIdRaw === ""
+  const groupIdRaw = data.groupId;
+  const groupId = groupIdRaw === undefined || groupIdRaw === null || groupIdRaw === ""
     ? null
-    : String(leagueIdRaw);
+    : String(groupIdRaw);
   const matchDate = data.matchDate ? String(data.matchDate) : null;
   const sortOrderRaw = data.sortOrder;
   const sortOrder = sortOrderRaw !== undefined && sortOrderRaw !== ""
@@ -928,22 +1207,20 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   const scoreB = parseNullableScore(data.scoreB);
   const rawScoreA = data.scoreA;
   const rawScoreB = data.scoreB;
-  if (
-    rawScoreA !== undefined && rawScoreA !== null && rawScoreA !== "" &&
-    scoreA === null
-  ) return errorResponse("Invalid scoreA");
-  if (
-    rawScoreB !== undefined && rawScoreB !== null && rawScoreB !== "" &&
-    scoreB === null
-  ) return errorResponse("Invalid scoreB");
+  if (rawScoreA !== undefined && rawScoreA !== null && rawScoreA !== "" && scoreA === null) {
+    return errorResponse("Invalid scoreA");
+  }
+  if (rawScoreB !== undefined && rawScoreB !== null && rawScoreB !== "" && scoreB === null) {
+    return errorResponse("Invalid scoreB");
+  }
 
-  if (!seasonId || !roundLabel || !playerAId || !playerBId) {
-    return errorResponse("seasonId, roundLabel, playerAId, playerBId required");
+  if (!compId || !roundLabel || !playerAId || !playerBId) {
+    return errorResponse("compId, roundLabel, playerAId, playerBId required");
   }
-  if (stage !== "league" && stage !== "knockout") {
-    return errorResponse("stage must be league or knockout");
+  if (stage !== "group" && stage !== "knockout") {
+    return errorResponse("stage must be group or knockout");
   }
-  if (stage === "league" && !leagueId) return errorResponse("leagueId required for league stage");
+  if (stage === "group" && !groupId) return errorResponse("groupId required for group stage");
   if (playerAId === playerBId) return errorResponse("Players must be different");
   if (!Number.isFinite(sortOrder)) return errorResponse("sortOrder must be a number");
 
@@ -955,8 +1232,8 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   if (fixtureId) {
     await sql`
       update ierne_snooker.fixtures set
-        season_id = ${seasonId},
-        league_id = ${leagueId},
+        competition_id = ${compId},
+        group_id = ${groupId},
         stage = ${stage},
         round_label = ${roundLabel},
         player_a_id = ${playerAId},
@@ -973,10 +1250,10 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
 
   await sql`
     insert into ierne_snooker.fixtures (
-      season_id, league_id, stage, round_label,
+      competition_id, group_id, stage, round_label,
       player_a_id, player_b_id, match_date, score_a, score_b, sort_order
     ) values (
-      ${seasonId}, ${leagueId}, ${stage}, ${roundLabel},
+      ${compId}, ${groupId}, ${stage}, ${roundLabel},
       ${playerAId}, ${playerBId}, ${matchDate}, ${sa}, ${sb}, ${so}
     )
   `;
@@ -990,12 +1267,12 @@ async function handleUpdateFixtureResult(data: Record<string, unknown>): Promise
   const scoreB = parseNullableScore(data.scoreB);
   const rawA = data.scoreA;
   const rawB = data.scoreB;
-  if (
-    rawA !== undefined && rawA !== null && rawA !== "" && scoreA === null
-  ) return errorResponse("Invalid scoreA");
-  if (
-    rawB !== undefined && rawB !== null && rawB !== "" && scoreB === null
-  ) return errorResponse("Invalid scoreB");
+  if (rawA !== undefined && rawA !== null && rawA !== "" && scoreA === null) {
+    return errorResponse("Invalid scoreA");
+  }
+  if (rawB !== undefined && rawB !== null && rawB !== "" && scoreB === null) {
+    return errorResponse("Invalid scoreB");
+  }
   const hasMatchDate = Object.prototype.hasOwnProperty.call(data, "matchDate");
   let matchDateVal: string | null | undefined;
   if (hasMatchDate) {
@@ -1024,28 +1301,6 @@ async function handleUpdateFixtureResult(data: Record<string, unknown>): Promise
     `;
   }
   return jsonResponse({ success: true });
-}
-
-async function handleGetBreaksForFixture(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const fixtureId = url.searchParams.get("fixtureId")?.trim();
-  if (!fixtureId) return errorResponse("fixtureId required");
-  const sql = db();
-  const rows = await sql<{ break_id: string; player_id: string; value: number }[]>`
-    select break_id, player_id, value
-      from ierne_snooker.breaks
-     where fixture_id = ${fixtureId}::uuid
-     order by value desc, break_id asc
-  `;
-  return jsonResponse({
-    success: true,
-    fixtureId,
-    breaks: rows.map((r) => ({
-      breakId: r.break_id,
-      playerId: r.player_id,
-      value: Number(r.value),
-    })),
-  });
 }
 
 async function handleUpsertBreak(data: Record<string, unknown>): Promise<Response> {
@@ -1080,9 +1335,52 @@ async function handleDeleteBreak(data: Record<string, unknown>): Promise<Respons
   const breakId = String(data.breakId ?? "").trim();
   if (!breakId) return errorResponse("breakId required");
   const sql = db();
-  await sql`
-    delete from ierne_snooker.breaks where break_id = ${breakId}::uuid
-  `;
+  await sql`delete from ierne_snooker.breaks where break_id = ${breakId}::uuid`;
+  return jsonResponse({ success: true });
+}
+
+async function handleDeleteFixture(data: Record<string, unknown>): Promise<Response> {
+  const fixtureId = String(data.fixtureId ?? "").trim();
+  if (!fixtureId) return errorResponse("fixtureId required");
+  const sql = db();
+  await sql`delete from ierne_snooker.fixtures where fixture_id = ${fixtureId}::uuid`;
+  return jsonResponse({ success: true });
+}
+
+async function handleDeleteHandicap(data: Record<string, unknown>): Promise<Response> {
+  const handicapId = String(data.handicapId ?? "").trim();
+  if (!handicapId) return errorResponse("handicapId required");
+  const sql = db();
+  await sql`delete from ierne_snooker.handicaps where handicap_id = ${handicapId}::uuid`;
+  return jsonResponse({ success: true });
+}
+
+async function handleDeletePlayer(data: Record<string, unknown>): Promise<Response> {
+  const playerId = String(data.playerId ?? "").trim();
+  if (!playerId) return errorResponse("playerId required");
+  const sql = db();
+  const [fx, br] = await Promise.all([
+    sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.fixtures
+        where player_a_id = ${playerId} or player_b_id = ${playerId}
+      ) as ok
+    `,
+    sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.breaks where player_id = ${playerId}
+      ) as ok
+    `,
+  ]);
+  const inFixtures = Boolean((fx[0] as { ok: boolean }).ok);
+  const inBreaks = Boolean((br[0] as { ok: boolean }).ok);
+  if (inFixtures || inBreaks) {
+    return errorResponse(
+      "Cannot delete player: still referenced by fixtures or breaks. Remove or reassign those first.",
+      409,
+    );
+  }
+  await sql`delete from ierne_snooker.players where player_id = ${playerId}`;
   return jsonResponse({ success: true });
 }
 
@@ -1095,28 +1393,22 @@ async function dispatchPost(envelope: PostEnvelope): Promise<Response> {
     if (denied) return denied;
   }
   switch (envelope.action) {
-    case "adminLogin":
-      return handleAdminLogin(envelope.data);
-    case "upsertPlayer":
-      return handleUpsertPlayer(envelope.data);
-    case "upsertSeasonPlayer":
-      return handleUpsertSeasonPlayer(envelope.data);
-    case "upsertHandicap":
-      return handleUpsertHandicap(envelope.data);
-    case "upsertSeason":
-      return handleUpsertSeason(envelope.data);
-    case "upsertLeague":
-      return handleUpsertLeague(envelope.data);
-    case "upsertFixture":
-      return handleUpsertFixture(envelope.data);
-    case "updateFixtureResult":
-      return handleUpdateFixtureResult(envelope.data);
-    case "upsertBreak":
-      return handleUpsertBreak(envelope.data);
-    case "deleteBreak":
-      return handleDeleteBreak(envelope.data);
-    default:
-      return errorResponse(`Unknown action: ${envelope.action}`, 400);
+    case "adminLogin": return handleAdminLogin(envelope.data);
+    case "upsertPlayer": return handleUpsertPlayer(envelope.data);
+    case "upsertCompetitionPlayer": return handleUpsertCompetitionPlayer(envelope.data);
+    case "upsertHandicap": return handleUpsertHandicap(envelope.data);
+    case "upsertCompetition": return handleUpsertCompetition(envelope.data);
+    case "deleteCompetition": return handleDeleteCompetition(envelope.data);
+    case "upsertCompetitionGroup": return handleUpsertCompetitionGroup(envelope.data);
+    case "deleteCompetitionGroup": return handleDeleteCompetitionGroup(envelope.data);
+    case "upsertFixture": return handleUpsertFixture(envelope.data);
+    case "updateFixtureResult": return handleUpdateFixtureResult(envelope.data);
+    case "upsertBreak": return handleUpsertBreak(envelope.data);
+    case "deleteBreak": return handleDeleteBreak(envelope.data);
+    case "deleteFixture": return handleDeleteFixture(envelope.data);
+    case "deleteHandicap": return handleDeleteHandicap(envelope.data);
+    case "deletePlayer": return handleDeletePlayer(envelope.data);
+    default: return errorResponse(`Unknown action: ${envelope.action}`, 400);
   }
 }
 
@@ -1141,24 +1433,16 @@ Deno.serve(async (req: Request) => {
     if (!action) return errorResponse("Missing required parameter: action");
 
     switch (action) {
-      case "getFixtures":
-        return await handleGetFixtures(req);
-      case "getStandings":
-        return await handleGetStandings(req);
-      case "getHandicaps":
-        return await handleGetHandicaps();
-      case "getPlayers":
-        return await handleGetPlayers(req);
-      case "getTopBreaks":
-        return await handleGetTopBreaks(req);
-      case "getSeasons":
-        return await handleGetSeasons();
-      case "getLeagues":
-        return await handleGetLeaguesPublic();
-      case "getBreaksForFixture":
-        return await handleGetBreaksForFixture(req);
-      default:
-        return errorResponse(`Unknown action: ${action}`, 400);
+      case "getCompetitions": return await handleGetCompetitions();
+      case "getCompetitionGroups": return await handleGetCompetitionGroups(req);
+      case "getFixtures": return await handleGetFixtures(req);
+      case "getStandings": return await handleGetStandings(req);
+      case "getHandicaps": return await handleGetHandicaps();
+      case "getPlayers": return await handleGetPlayers(req);
+      case "getPlayerComps": return await handleGetPlayerComps(req);
+      case "getTopBreaks": return await handleGetTopBreaks(req);
+      case "getBreaksForFixture": return await handleGetBreaksForFixture(req);
+      default: return errorResponse(`Unknown action: ${action}`, 400);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

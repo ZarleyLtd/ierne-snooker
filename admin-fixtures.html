@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en-gb">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Manage Fixtures - ierne-snooker</title>
+    <link rel="stylesheet" href="assets/css/style.css" />
+    <link rel="stylesheet" href="assets/css/admin-panel.css" />
+    <noscript
+      ><style>
+        img[loading] {
+          opacity: 1;
+        }
+      </style></noscript
+    >
+    <script src="assets/js/config/app-config.js"></script>
+    <script src="assets/js/utils/api-client.js"></script>
+    <script src="assets/js/utils/admin-mode.js"></script>
+    <script src="assets/js/utils/formatters.js"></script>
+    <script src="assets/js/utils/image-loader.js"></script>
+    <script src="assets/js/utils/knockout-rounds.js"></script>
+    <script defer src="assets/js/pages/admin-fixtures.js"></script>
+    <script defer src="assets/js/main.js"></script>
+  </head>
+  <body class="page-template">
+    <header class="top js-header">
+      <a class="logo" href="index.html">
+        <img src="assets/images/Ierne-logo-768x920.png" alt="ierne-snooker" width="768" height="920" />
+      </a>
+      <nav class="navbar js-navbar">
+        <button class="navbar__toggle js-toggle" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+          <span class="navbar__toggle-box">
+            <span class="navbar__toggle-inner">Menu</span>
+          </span>
+        </button>
+        <ul class="navbar__menu">
+          <li><a href="index.html" target="_self">Home</a></li>
+          <li><a href="leagues.html" target="_self">Leagues</a></li>
+          <li><a href="fixtures.html" target="_self">Fixtures</a></li>
+          <li><a href="results.html" target="_self">Results</a></li>
+          <li><a href="top-breaks.html" target="_self">Top Breaks</a></li>
+          <li><a href="handicaps.html" target="_self">Handicaps</a></li>
+          <li><a href="rules.html" target="_self">Rules</a></li>
+          <li><a href="under-development.html" target="_self">Under Development</a></li>
+          <li><button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle">Unlock Admin Mode</button></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-fixtures.html" target="_self">Manage Fixtures</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-bulk-fixtures.html" target="_self">Bulk Load Fixtures</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-players.html" target="_self">Manage Players</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-bulk-players.html" target="_self">Bulk Load Players</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-competitions.html" target="_self">Manage Comps</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main class="page">
+      <article class="content">
+        <div class="hero">
+          <header class="hero__content hero__content--centered">
+            <div class="wrapper"><h1>Manage Fixtures</h1></div>
+          </header>
+          <figure class="hero__image">
+            <div class="hero__image-wrapper">
+              <img src="assets/images/heroBG-.jpg" loading="eager" height="529" width="1456" alt="Snooker table" />
+            </div>
+          </figure>
+        </div>
+        <div class="entry-wrapper content__entry" id="adminFixturesRoot">
+          <p id="adminFixturesGate" class="msg msg--info">
+            Unlock <strong>Admin Mode</strong> from the menu to manage fixtures.
+          </p>
+          <div id="adminFixturesPanel" hidden>
+            <p id="adminFxMsg" class="msg" hidden></p>
+            <div class="admin-fixtures-toolbar">
+              <div class="admin-fixtures-toolbar__season">
+                <label for="adminFxComp">Comp</label>
+                <select id="adminFxComp"></select>
+              </div>
+              <button type="button" class="btn admin-fixtures-add-btn" id="adminFxAddBtn">+ Add Fixture</button>
+            </div>
+            <div id="adminFxList" class="admin-fixtures-list"></div>
+
+            <dialog id="admin-fixture-dialog" class="admin-fixture-dialog" aria-labelledby="admin-fixture-dialog-title">
+              <form id="adminFxDialogForm">
+                <h2 id="admin-fixture-dialog-title" class="admin-fixture-dialog__title">Add / edit fixture</h2>
+                <input type="hidden" id="adminFxFixtureId" />
+                <p>
+                  <label for="adminFxStage">Stage</label><br />
+                  <select id="adminFxStage" required>
+                    <option value="group">Group</option>
+                    <option value="knockout">Knockout</option>
+                  </select>
+                </p>
+                <div id="adminFxGroupFields">
+                  <div class="admin-fixture-dialog__group-week">
+                    <p class="admin-fixture-dialog__field admin-fixture-dialog__field--group">
+                      <label for="adminFxGroup">Group</label><br />
+                      <select id="adminFxGroup"></select>
+                    </p>
+                    <p class="admin-fixture-dialog__field admin-fixture-dialog__field--week">
+                      <label for="adminFxWeek">Week</label><br />
+                      <input type="number" id="adminFxWeek" min="1" step="1" />
+                    </p>
+                  </div>
+                </div>
+                <div id="adminFxKoFields" hidden>
+                  <p>
+                    <label for="adminFxRound">Round</label><br />
+                    <select id="adminFxRound"></select>
+                  </p>
+                  <p>
+                    <label for="adminFxRoundCustom">Custom round code</label><br />
+                    <input type="text" id="adminFxRoundCustom" hidden placeholder="e.g. PO5" />
+                  </p>
+                </div>
+                <div class="admin-fixture-dialog__players">
+                  <p class="admin-fixture-dialog__player-row">
+                    <select id="adminFxPa" required aria-label="Player A"></select>
+                  </p>
+                  <p class="admin-fixture-dialog__vs-row" aria-hidden="true">V</p>
+                  <p class="admin-fixture-dialog__player-row">
+                    <select id="adminFxPb" required aria-label="Player B"></select>
+                  </p>
+                </div>
+                <p id="adminFxDialogMsg" class="msg" hidden></p>
+                <div class="admin-fixture-dialog__actions">
+                  <button type="submit" class="btn">Save</button>
+                  <button type="button" class="btn" id="adminFxCancelBtn">Cancel</button>
+                  <button type="button" class="btn admin-fixture-dialog__delete" id="adminFxDeleteBtn" hidden>Delete</button>
+                </div>
+              </form>
+            </dialog>
+          </div>
+        </div>
+      </article>
+    </main>
+    <footer class="footer">
+      <div class="wrapper">
+        <nav class="footer__nav">
+          <ul>
+            <li><a href="leagues.html" class="al" target="_self">Leagues</a></li>
+            <li><a href="fixtures.html" class="al" target="_self">Fixtures</a></li>
+            <li><a href="results.html" class="al" target="_self">Results</a></li>
+          </ul>
+        </nav>
+        <div class="footer__copyright"><p><span style="color: #169179">by JP</span></p></div>
+        <button id="backToTop" class="footer__bttop" aria-label="Back to top" title="Back to top">
+          <svg width="20" height="20" viewBox="0 0 24 24">
+            <path d="M8 6L12 2L16 6" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M12 2V22" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </div>
+    </footer>
+    <script defer src="assets/js/scripts.min.js"></script>
+    <script>
+      window.themeMenuConfig = {
+        mobileMenuMode: "overlay",
+        animationSpeed: 300,
+        submenuWidth: "auto",
+        doubleClickTime: 500,
+        mobileMenuExpandableSubmenus: true,
+        relatedContainerForOverlayMenuSelector: ".top",
+      };
+    </script>
+    <script src="assets/js/utils/nav-active.js"></script>
+  </body>
+</html>

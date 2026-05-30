@@ -12,6 +12,7 @@ var AdminMode = {
     this.ensureDialog();
     this.bindNavToggle();
     this.refreshNavLabel();
+    this.refreshAdminNavVisibility();
   },
 
   isUnlocked: function () {
@@ -36,7 +37,16 @@ var AdminMode = {
     sessionStorage.removeItem(this.TOKEN_KEY);
     sessionStorage.removeItem(this.EXPIRES_KEY);
     this.refreshNavLabel();
+    this.refreshAdminNavVisibility();
     this.dispatchChange();
+  },
+
+  refreshAdminNavVisibility: function () {
+    var on = this.isUnlocked();
+    document.querySelectorAll('.nav-admin-only').forEach(function (el) {
+      el.hidden = !on;
+      el.setAttribute('aria-hidden', on ? 'false' : 'true');
+    });
   },
 
   refreshNavLabel: function () {
@@ -44,6 +54,7 @@ var AdminMode = {
     document.querySelectorAll('.nav-admin-toggle').forEach(function (btn) {
       btn.textContent = label;
     });
+    this.refreshAdminNavVisibility();
   },
 
   ensureDialog: function () {

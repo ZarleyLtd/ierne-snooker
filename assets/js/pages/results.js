@@ -47,11 +47,15 @@ var ResultsPage = {
     }
 
     try {
-      var result = await ApiClient.get({ action: 'getFixtures' });
+      var result = await ApiClient.get({
+        action: 'getFixtures',
+        competitionType: 'league',
+      });
       var data = result.fixtures || [];
 
       var rows = data.filter(function (r) {
         return (
+          String(r.Stage || '').toLowerCase() === 'group' &&
           r['Game Week'] &&
           r['Player A'] &&
           r['Player B'] &&

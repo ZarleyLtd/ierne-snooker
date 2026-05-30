@@ -7,23 +7,23 @@ ref `yzyipxvlsoxfphwobfkb`) via a single Edge Function called `ierne-api`.
 
 ```
 Browser (static HTML)
-   |  GET ?action=...&season=...
+   |  GET ?action=...&comp=...&competitionType=...
    v
 Edge Function: ierne-api  (supabase/functions/ierne-api/index.ts)
    |  direct Postgres connection (SUPABASE_DB_URL)
    v
 schema: ierne_snooker
-   ├─ leagues           (League A, League B, ...)
-   ├─ seasons           (one row per season; one is_current = true)
-   ├─ players           (identity only)
-   ├─ season_players    (per-season league membership)
-   ├─ fixtures          (season + league + round + stage + scores)
-   ├─ handicaps         (full history per player)
-   └─ breaks            (big breaks per fixture per player)
+   ├─ competitions        (league or knockout comp; optional parent_competition_id)
+   ├─ competition_groups  (groups within a league comp)
+   ├─ competition_players (roster per comp + group)
+   ├─ players             (identity only)
+   ├─ fixtures            (comp + group + round + stage + scores)
+   ├─ handicaps           (full history per player)
+   └─ breaks              (big breaks per fixture per player)
 
    views:
-   ├─ fixture_results_v   (one row per (fixture, player) for completed league play)
-   ├─ league_standings_v  (P/W/L/D/+-/Pts per (season, league, player))
+   ├─ fixture_results_v   (group-stage completed fixtures)
+   ├─ league_standings_v  (P/W/L/D/+-/Pts per comp + group + player)
    └─ head_to_head_v      (record between every ordered pair, used for tiebreaks)
 ```
 
@@ -36,15 +36,17 @@ Postgres connection via `SUPABASE_DB_URL`, keeping all data inside the
 
 ```mermaid
 erDiagram
-    leagues ||--o{ season_players : has
-    leagues ||--o{ fixtures : groups
-    seasons ||--o{ season_players : has
-    seasons ||--o{ fixtures : contains
-    players ||--o{ season_players : "joins per season"
+    competitions ||--o{ competition_groups : has
+    competitions ||--o{ competition_players : has
+    competitions ||--o{ fixtures : contains
+    competitions ||--o| competitions : "parent KO comp"
+    competition_groups ||--o{ competition_players : roster
+    competition_groups ||--o{ fixtures : "group stage"
+    players ||--o{ competition_players : joins
     players ||--o{ fixtures : "plays as A"
     players ||--o{ fixtures : "plays as B"
     players ||--o{ handicaps : has
-    fixtures ||--o{ breaks : "logs"
+    fixtures ||--o{ breaks : logs
     players ||--o{ breaks : "made by"
 ```
 
@@ -53,7 +55,7 @@ erDiagram
 `league_standings_v` is computed live from `fixtures` whenever it's read.
 Rules baked into the view:
 
-- Only `stage = 'league'` fixtures with both `score_a` and `score_b` set count.
+- Only `stage = 'group'` fixtures with both `score_a` and `score_b` set count.
 - **Win** (frames_for > frames_against) = 2 points.
 - **Draw** (frames_for == frames_against, e.g. 0-0 double-walkover) = 0 points.
 - **Loss** (frames_for < frames_against) = 0 points.
@@ -73,7 +75,7 @@ The Edge Function applies the tiebreaker chain:
    against the other tied players, then by H2H frame diff.
 4. Otherwise alphabetical (stable).
 
-Players in `season_players` who haven't played a league fixture yet show up
+Players in `competition_players` who haven't played a group-stage fixture yet show up
 with all-zero rows.
 
 ## File map
@@ -93,23 +95,21 @@ with all-zero rows.
 
 ### GET actions
 
-Read-only GETs require no custom headers. Default season is the row in
-`seasons` with `is_current = true`. Override with `?season=<id>`.
+Read-only GETs require no custom headers. Default comp is the current row in
+`competitions` for the requested `competitionType` (`league` or `knockout`).
+Override with `?comp=<id>`.
 
 | Action          | Query params                          | Returns                                                                                                               |
 | --------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `getFixtures`   | `season`                              | `{ success, season, fixtures: [{ fixtureId, playerAId, playerBId, "Game Week", "League", "Stage", "Player A", "Player B", "Match Date", "Result", scoreA, scoreB, sortOrder }] }` |
-| `getStandings`  | `season`                              | `{ success, season, leagues: [{ leagueId, name, rows: [{ "Player Name", P, W, L, D, "+/-", Pts }] }], leagueA: [...], leagueB: [...] }` |
-| `getHandicaps`  | -                                     | `{ success, handicaps: [...], latest: [...] }` — rows include `handicapId`, `playerId`, plus display fields `"Player Name"`, `"Handicap"`, `"Handicap Date"` |
-| `getPlayers`    | `season`, `league`                    | `{ success, season?, players: [{ playerId, playerName, league?, active }] }` (no params -> every player; with params -> just that season's roster) |
-| `getTopBreaks`  | `season`, `league`, `limit` (def 20)  | `{ success, season, breaks: [{ breakId, fixtureId, playerId, "Player Name", "Break", "League", "Stage", "Round", "Match Date", "Opponent" }] }` |
-| `getSeasons`    | -                                     | `{ success, seasons: [{ seasonId, name, startsOn, endsOn, isCurrent }] }` |
-| `getLeagues`    | -                                     | `{ success, leagues: [{ leagueId, name, displayOrder }] }` |
+| `getFixtures`   | `comp`, `competitionType`             | `{ success, compId, fixtures: [{ fixtureId, "Game Week", "Group", "Stage" (`group`\|`knockout`), ... }] }` |
+| `getStandings`  | `comp`, `competitionType`             | `{ success, compId, groups: [{ groupId, name, rows: [...] }] }` |
+| `getHandicaps`  | -                                     | `{ success, handicaps: [...], latest: [...] }` |
+| `getPlayers`    | `comp`, `group`                       | `{ success, compId?, players: [{ playerId, playerName, group?, active, compCount?, matchCount? }] }` |
+| `getPlayerComps`| `playerId`                            | `{ success, competitions: [{ compId, name, isCurrent, competitionType, parentCompId }] }` |
+| `getTopBreaks`  | `comp`, `group`, `limit` (def 20), `competitionType` | `{ success, compId, breaks: [...] }` |
+| `getCompetitions` | -                                   | `{ success, competitions: [{ compId, name, competitionType, parentCompId, startsOn, endsOn, isCurrent }] }` |
+| `getCompetitionGroups` | `compId`                       | `{ success, compId, groups: [{ groupId, name, displayOrder, playerCount? }] }` |
 | `getBreaksForFixture` | `fixtureId` (uuid)              | `{ success, fixtureId, breaks: [{ breakId, playerId, value }] }` |
-
-`leagueA` / `leagueB` on `getStandings` are a backwards-compat alias for the
-existing pages while we migrate frontend code over to the structured
-`leagues` array.
 
 ### POST actions (admin writes)
 
@@ -133,14 +133,19 @@ error and mutations return `401 Unauthorized`.
 | ---------------------- | ----------------------- |
 | `adminLogin`           | `pin` or `secret` |
 | `upsertPlayer`         | `playerId`, `playerName`, `active` (optional, default true) |
-| `upsertSeasonPlayer`   | `seasonId`, `playerId`, `leagueId`; or `remove: true` to drop membership |
-| `upsertHandicap`       | `playerId`, `handicap`, `effectiveDate`; optional `handicapId` to update |
-| `upsertSeason`         | `seasonId`, `name`, optional `startsOn`, `endsOn`, `isCurrent` |
-| `upsertLeague`         | `leagueId`, `name`, `displayOrder` |
-| `upsertFixture`        | optional `fixtureId`; `seasonId`, `stage` (`league` \| `knockout`), `roundLabel`, `playerAId`, `playerBId`; `leagueId` required when `stage` is `league`; optional `matchDate`, `sortOrder`, `scoreA`, `scoreB` |
-| `updateFixtureResult`  | `fixtureId`, `scoreA`, `scoreB` (null/empty allowed per league rules); optional `matchDate` (`YYYY-MM-DD`) — omit to leave `match_date` unchanged |
+| `upsertCompetitionPlayer` | `compId`, `playerId`, `groupId`; or `remove: true` |
+| `upsertHandicap`       | `playerId`, `handicap`, `effectiveDate`; optional `handicapId` |
+| `upsertCompetition`    | `compId`, `name`, `competitionType` (`league`\|`knockout`), optional `parentCompId`, `startsOn`, `endsOn`, `isCurrent` |
+| `upsertCompetitionGroup` | `compId`, `groupId`, `name`, `displayOrder`; or `remove: true` |
+| `upsertFixture`        | optional `fixtureId`; `compId`, `stage` (`group`\|`knockout`), `roundLabel`, `playerAId`, `playerBId`; `groupId` required when `stage` is `group` |
+| `updateFixtureResult`  | `fixtureId`, `scoreA`, `scoreB`; optional `matchDate` |
 | `upsertBreak`          | optional `breakId`; `fixtureId`, `playerId`, `value` (1–155) |
 | `deleteBreak`          | `breakId` |
+| `deleteFixture`        | `fixtureId` (uuid) |
+| `deleteHandicap`       | `handicapId` (uuid) |
+| `deletePlayer`         | `playerId` — rejected with `409` if referenced |
+| `deleteCompetition`    | `compId` — rejected with `409` if fixtures or child comps exist |
+| `deleteCompetitionGroup` | `compId`, `groupId` |
 
 Errors return `{ success: false, error: "..." }` with HTTP 4xx/5xx.
 
@@ -149,7 +154,10 @@ Errors return `{ success: false, error: "..." }` with HTTP 4xx/5xx.
 If you ever need to recreate this from a fresh Supabase project:
 
 1. **Apply migrations** (idempotent):
-   - `supabase db push` (CLI, after `supabase link --project-ref <ref>`)
+   - `supabase link --project-ref yzyipxvlsoxfphwobfkb` (once per machine)
+   - If remote history diverges from git (MCP-applied versions), run:
+     `.\scripts\reconcile-supabase-migrations.ps1`
+   - Otherwise: `supabase db push`
    - or use the apply_migration MCP tool with the SQL in `supabase/migrations/`.
 
 2. **Deploy the function** (required after any change to `index.ts`, including new GET actions such as `getBreaksForFixture`; otherwise the Enter result dialog cannot load breaks):
@@ -173,19 +181,16 @@ If you ever need to recreate this from a fresh Supabase project:
    ```
 
 6. **Smoke test the site** by opening each page and confirming data renders:
-   - `index.html` (knockout rounds; populated only if knockout fixtures
-     exist in the current season)
-   - `leagues.html` and `under-development.html` (standings)
-   - `fixtures.html` (upcoming, where Result is empty)
-   - `results.html` (where Result is set)
-   - `handicaps.html` (latest per player)
-   - `top-breaks.html` (highest breaks in the current season)
+   - `index.html` (knockout rounds from current knockout comp)
+   - `leagues.html` and `under-development.html` (standings by group)
+   - `fixtures.html`, `results.html`, `handicaps.html`, `top-breaks.html`
+   - Admin pages (after unlocking): `admin-fixtures.html`, `admin-bulk-fixtures.html`, `admin-players.html`, `admin-bulk-players.html`, `admin-competitions.html`
 
 ## Editing data
 
 Three options:
 
-- **Unlock Admin Mode** (menu, bottom item): enter the same value as `IERNE_ADMIN_SECRET`, then use admin-only UI such as entering **fixtures** results on [`fixtures.html`](../fixtures.html).
+- **Unlock Admin Mode** (menu): enter the same value as `IERNE_ADMIN_SECRET`, then use admin-only UI on fixtures/results and the five **Manage** pages (`admin-fixtures`, `admin-bulk-fixtures`, `admin-players`, `admin-bulk-players`, `admin-competitions`).
 - **Via the Supabase dashboard** Table Editor on the `ierne_snooker` schema.
   Useful for entering match results, breaks, and adjusting handicaps.
 - **Re-run the migration script** after the source Google Sheets are
@@ -211,10 +216,8 @@ The `getStandings` action returns leagues in `display_order`. The
 backwards-compat `leagueA` / `leagueB` aliases only emit for those two IDs;
 new leagues live exclusively under the `leagues` array.
 
-## Known not-yet-built
+## Known gaps / follow-ups
 
-- **Write endpoints**. The function only exposes reads; admins enter
-  results, breaks and handicaps via the Supabase dashboard.
 - **Seasonal handicaps**. `handicaps` is global (player + effective date),
   not scoped per season. Add a `season_id` column if season-specific
   handicaps become a requirement.

@@ -12,7 +12,10 @@ const IndexPage = {
     if (!hasKnockoutContainers) return;
     
     try {
-      const result = await ApiClient.get({ action: 'getFixtures' });
+      const result = await ApiClient.get({
+        action: 'getFixtures',
+        competitionType: 'knockout',
+      });
       const fixtures = result.fixtures || [];
       
       const gameWeekMap = {

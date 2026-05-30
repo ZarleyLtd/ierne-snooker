@@ -10,8 +10,13 @@ assets/js/
 │   └── app-config.js          # Edge Function URL (single source of truth)
 ├── utils/
 │   ├── api-client.js          # Fetch wrapper for the ierne-api Edge Function
+│   ├── admin-mode.js          # Unlock Admin Mode + nav visibility for admin links
+│   ├── csv-parse.js           # Delimiter sniff + row split for admin CSV import
 │   ├── formatters.js          # Data formatting helpers
-│   └── image-loader.js        # Image loading utility
+│   ├── image-loader.js        # Image loading utility
+│   ├── nav-active.js          # Active nav item
+│   ├── knockout-rounds.js     # Knockout round codes/labels for admin fixtures
+│   └── player-slug.js         # Deterministic player_id slug (matches migration script)
 ├── components/
 │   ├── knockout-renderer.js   # Reusable knockout tournament display component
 │   └── league-standings.js    # Reusable league standings display component
@@ -21,7 +26,13 @@ assets/js/
 │   ├── results.js             # Results page
 │   ├── leagues.js             # Leagues page
 │   ├── handicaps.js           # Handicaps page
-│   ├── top-breaks.js          # Top Breaks leaderboard for the current season
+│   ├── top-breaks.js          # Top Breaks leaderboard
+│   ├── admin-fixtures.js      # Admin: fixture modal CRUD (group + knockout)
+│   ├── admin-bulk-fixtures.js # Admin: bulk CSV fixture import
+│   ├── admin-players.js       # Admin: player list
+│   ├── admin-player.js        # Admin: edit single player + handicaps
+│   ├── admin-bulk-players.js  # Admin: bulk CSV players + handicaps
+│   ├── admin-competitions.js  # Admin: comps, groups, rosters, linked KO comps
 │   ├── under-development.js   # Under development page
 │   └── league-leaders.js      # League leaders placeholder replacement
 └── main.js                    # Main entry point & page router

@@ -72,6 +72,10 @@ const KnockoutRenderer = {
    */
   filterByGameWeek: function(fixtures, gameWeekCode) {
     const gw = r => (r['Game Week'] || '').trim().toUpperCase();
-    return fixtures.filter(r => gw(r) === gameWeekCode);
+    return fixtures.filter(r => {
+      const stage = String(r.Stage || '').toLowerCase();
+      if (stage && stage !== 'knockout') return false;
+      return gw(r) === gameWeekCode;
+    });
   }
 };

@@ -7,11 +7,17 @@ const TopBreaksPage = {
     const seasonLabel = document.getElementById('topBreaksSeason');
 
     try {
-      const result = await ApiClient.get({ action: 'getTopBreaks' });
+      const [compsResult, result] = await Promise.all([
+        ApiClient.get({ action: 'getCompetitions' }),
+        ApiClient.get({ action: 'getTopBreaks', competitionType: 'league' }),
+      ]);
       const breaks = Array.isArray(result.breaks) ? result.breaks : [];
 
-      if (seasonLabel && result.season) {
-        seasonLabel.textContent = result.season;
+      const currentLeague = (compsResult.competitions || []).find(function (c) {
+        return c.isCurrent && c.competitionType === 'league';
+      });
+      if (seasonLabel && currentLeague) {
+        seasonLabel.textContent = currentLeague.name || currentLeague.compId;
       }
 
       list.innerHTML = '';
@@ -34,7 +40,7 @@ const TopBreaksPage = {
         meta.className = 'top-breaks-list__meta';
         const parts = [b['Player Name']];
         const ctx = [];
-        if (b['League']) ctx.push('League ' + b['League']);
+        if (b['Group']) ctx.push('Group ' + b['Group']);
         if (b['Round']) ctx.push('Round ' + b['Round']);
         if (b['Opponent']) ctx.push('vs ' + b['Opponent']);
         if (ctx.length) parts.push('(' + ctx.join(', ') + ')');

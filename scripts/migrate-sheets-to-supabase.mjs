@@ -11,7 +11,7 @@
  * - SHEET_GID_FIXTURES
  * - SHEET_GID_LEAGUES
  * - SHEET_GID_HANDICAPS
- * - SEASON_ID            (default: '2025-26')
+ * - SEASON_ID / COMP_ID     (default: '2025-26') — league competition id
  * - SEASON_NAME          (default: '2025/26 Season')
  * - SEASON_STARTS_ON     (default: <SEASON_ID first half>-09-01)
  * - SEASON_ENDS_ON       (default: <SEASON_ID second half>-05-31)
@@ -26,11 +26,8 @@
  *   does not need to be added to the project's Exposed Schemas list.
  * - The fixtures sheet has no league column. League membership is derived
  *   from the leagues sheet (cols 0-5 = League A, cols 7-12 = League B) and
- *   stored in `ierne_snooker.season_players`.
- * - Player IDs are deterministic slugs of the player name so reruns are
- *   idempotent.
- * - Knockout fixtures (round_label in 'CS','CF','PQ','PS','PF') are
- *   tagged with stage = 'knockout' and league_id = NULL.
+ *   stored in `ierne_snooker.competition_players` (group A / B).
+ * - Knockout fixtures go to a linked comp `{COMP_ID}-ko` with stage = 'knockout'.
  * - The `league_standings` table no longer exists; standings are computed
  *   live by the `league_standings_v` view from `fixtures`. So this script
  *   no longer touches them.
@@ -46,18 +43,20 @@ const SHEET_BASE_ID = process.env.SHEET_BASE_ID
 const SHEET_GID_FIXTURES = process.env.SHEET_GID_FIXTURES || "2003970244";
 const SHEET_GID_LEAGUES = process.env.SHEET_GID_LEAGUES || "902750162";
 const SHEET_GID_HANDICAPS = process.env.SHEET_GID_HANDICAPS || "0";
-const SEASON_ID = process.env.SEASON_ID || "2025-26";
-const SEASON_NAME = process.env.SEASON_NAME || `${SEASON_ID.replace("-", "/")} Season`;
-function defaultDateBounds(seasonId) {
-  const m = seasonId.match(/^(\d{4})-(\d{2})$/);
+const COMP_ID = process.env.COMP_ID || process.env.SEASON_ID || "2025-26";
+const COMP_KO_ID = `${COMP_ID}-ko`;
+const COMP_NAME = process.env.COMP_NAME || process.env.SEASON_NAME || `${COMP_ID.replace("-", "/")} League`;
+const COMP_KO_NAME = process.env.COMP_KO_NAME || `${COMP_ID.replace("-", "/")} Knockout`;
+function defaultDateBounds(compId) {
+  const m = compId.match(/^(\d{4})-(\d{2})$/);
   if (!m) return { startsOn: null, endsOn: null };
   const startYear = parseInt(m[1], 10);
   const endYear = startYear + 1;
   return { startsOn: `${startYear}-09-01`, endsOn: `${endYear}-05-31` };
 }
-const { startsOn: defaultStart, endsOn: defaultEnd } = defaultDateBounds(SEASON_ID);
-const SEASON_STARTS_ON = process.env.SEASON_STARTS_ON || defaultStart;
-const SEASON_ENDS_ON = process.env.SEASON_ENDS_ON || defaultEnd;
+const { startsOn: defaultStart, endsOn: defaultEnd } = defaultDateBounds(COMP_ID);
+const COMP_STARTS_ON = process.env.COMP_STARTS_ON || process.env.SEASON_STARTS_ON || defaultStart;
+const COMP_ENDS_ON = process.env.COMP_ENDS_ON || process.env.SEASON_ENDS_ON || defaultEnd;
 const KNOCKOUT_LABELS = new Set(["CS", "CF", "PQ", "PS", "PF"]);
 const DRY_RUN = process.argv.includes("--dry-run");
 
@@ -167,13 +166,13 @@ function parseResult(raw) {
 
 const report = {
   dryRun: DRY_RUN,
-  seasonId: SEASON_ID,
+  compId: COMP_ID,
   startedAt: new Date().toISOString(),
   counts: {},
   warnings: [],
 };
 
-console.log(`Fetching CSVs (dryRun=${DRY_RUN}, season=${SEASON_ID})...`);
+console.log(`Fetching CSVs (dryRun=${DRY_RUN}, comp=${COMP_ID})...`);
 
 const [fixturesCsv, leaguesCsv, handicapsCsv] = await Promise.all([
   fetchCsv(sheetUrl(SHEET_GID_FIXTURES)),
@@ -190,7 +189,7 @@ const handicapsRows = rowsToObjects(parseCsv(handicapsCsv));
 // in two side-by-side blocks: cols 0-5 = League A, cols 7-12 = League B.
 
 const playersByName = new Map();
-const seasonMembership = []; // [{ league_id, player_id }]
+const compMembership = []; // [{ group_id, player_id }]
 
 function addPlayer(name) {
   const trimmed = String(name || "").trim();
@@ -207,12 +206,12 @@ for (const row of leaguesDataRows) {
   const aName = (row[0] || "").trim();
   if (aName) {
     const p = addPlayer(aName);
-    seasonMembership.push({ league_id: "A", player_id: p.player_id });
+    compMembership.push({ group_id: "A", player_id: p.player_id });
   }
   const bName = (row[7] || "").trim();
   if (bName) {
     const p = addPlayer(bName);
-    seasonMembership.push({ league_id: "B", player_id: p.player_id });
+    compMembership.push({ group_id: "B", player_id: p.player_id });
   }
 }
 
@@ -231,8 +230,8 @@ for (const h of handicapsRows) {
 
 // Build a quick lookup of season memberships keyed by player_id so we can
 // derive league_id for fixtures.
-const memberLeagueByPlayer = new Map();
-for (const m of seasonMembership) memberLeagueByPlayer.set(m.player_id, m.league_id);
+const memberGroupByPlayer = new Map();
+for (const m of compMembership) memberGroupByPlayer.set(m.player_id, m.group_id);
 
 const fixtureRows = [];
 fixturesRows.forEach((f, idx) => {
@@ -246,19 +245,19 @@ fixturesRows.forEach((f, idx) => {
     report.warnings.push(`Skipping fixture (missing player): "${a}" vs "${b}"`);
     return;
   }
-  const stage = KNOCKOUT_LABELS.has(round) ? "knockout" : "league";
-  const derivedLeague = memberLeagueByPlayer.get(playerA.player_id)
-    || memberLeagueByPlayer.get(playerB.player_id)
+  const stage = KNOCKOUT_LABELS.has(round) ? "knockout" : "group";
+  const derivedGroup = memberGroupByPlayer.get(playerA.player_id)
+    || memberGroupByPlayer.get(playerB.player_id)
     || null;
-  // Knockout fixtures may legitimately have no league.
-  const leagueId = stage === "knockout" ? derivedLeague : derivedLeague;
-  if (stage === "league" && !leagueId) {
-    report.warnings.push(`League fixture has no derivable league: "${a}" vs "${b}" round ${round}`);
+  const groupId = stage === "knockout" ? null : derivedGroup;
+  const competitionId = stage === "knockout" ? COMP_KO_ID : COMP_ID;
+  if (stage === "group" && !groupId) {
+    report.warnings.push(`Group fixture has no derivable group: "${a}" vs "${b}" round ${round}`);
   }
   const { scoreA, scoreB } = parseResult(f["Result"]);
   fixtureRows.push({
-    season_id: SEASON_ID,
-    league_id: leagueId,
+    competition_id: competitionId,
+    group_id: groupId,
     stage,
     round_label: round,
     player_a_id: playerA.player_id,
@@ -298,13 +297,13 @@ const handicapRows = Array.from(handicapMap.values());
 
 // Deduplicate season membership too -- last write wins.
 const memberMap = new Map();
-for (const m of seasonMembership) memberMap.set(m.player_id, m);
+for (const m of compMembership) memberMap.set(m.player_id, m);
 const memberRows = Array.from(memberMap.values());
 
 const playerRows = Array.from(playersByName.values());
 
 console.log(`Players: ${playerRows.length}`);
-console.log(`Season members: ${memberRows.length}`);
+console.log(`Comp members: ${memberRows.length}`);
 console.log(`Fixtures: ${fixtureRows.length}`);
 console.log(`Handicaps: ${handicapRows.length}`);
 if (report.warnings.length) console.warn(`Warnings: ${report.warnings.length}`);
@@ -315,19 +314,42 @@ if (!DRY_RUN) {
   try {
     await client.query("begin");
 
-    // Make sure the season exists. Leagues are seeded by the schema
-    // migration -- we don't touch them here.
     await client.query(
-      `insert into ierne_snooker.seasons
-         (season_id, name, starts_on, ends_on, is_current)
-       values ($1, $2, $3, $4, true)
-       on conflict (season_id) do update
+      `insert into ierne_snooker.competitions
+         (competition_id, name, starts_on, ends_on, is_current, competition_type)
+       values ($1, $2, $3, $4, true, 'league')
+       on conflict (competition_id) do update
          set name = excluded.name,
              starts_on = excluded.starts_on,
              ends_on = excluded.ends_on,
              updated_at = now()`,
-      [SEASON_ID, SEASON_NAME, SEASON_STARTS_ON, SEASON_ENDS_ON],
+      [COMP_ID, COMP_NAME, COMP_STARTS_ON, COMP_ENDS_ON],
     );
+
+    await client.query(
+      `insert into ierne_snooker.competitions
+         (competition_id, name, starts_on, ends_on, is_current, competition_type, parent_competition_id)
+       values ($1, $2, $3, $4, true, 'knockout', $5)
+       on conflict (competition_id) do update
+         set name = excluded.name,
+             parent_competition_id = excluded.parent_competition_id,
+             updated_at = now()`,
+      [COMP_KO_ID, COMP_KO_NAME, COMP_STARTS_ON, COMP_ENDS_ON, COMP_ID],
+    );
+
+    for (const [gid, gname, ord] of [["A", "Group A", 1], ["B", "Group B", 2], ["ko", "Knockout pool", 0]]) {
+      const cid = gid === "ko" ? COMP_KO_ID : COMP_ID;
+      await client.query(
+        `insert into ierne_snooker.competition_groups
+           (competition_id, group_id, name, display_order)
+         values ($1, $2, $3, $4)
+         on conflict (competition_id, group_id) do update
+           set name = excluded.name,
+               display_order = excluded.display_order,
+               updated_at = now()`,
+        [cid, gid, gname, ord],
+      );
+    }
 
     for (const p of playerRows) {
       await client.query(
@@ -342,31 +364,31 @@ if (!DRY_RUN) {
 
     for (const m of memberRows) {
       await client.query(
-        `insert into ierne_snooker.season_players
-           (season_id, league_id, player_id)
+        `insert into ierne_snooker.competition_players
+           (competition_id, group_id, player_id)
          values ($1, $2, $3)
-         on conflict (season_id, player_id) do update
-           set league_id = excluded.league_id,
+         on conflict (competition_id, player_id) do update
+           set group_id = excluded.group_id,
                updated_at = now()`,
-        [SEASON_ID, m.league_id, m.player_id],
+        [COMP_ID, m.group_id, m.player_id],
       );
     }
 
     for (const f of fixtureRows) {
       await client.query(
         `insert into ierne_snooker.fixtures
-           (season_id, league_id, stage, round_label,
+           (competition_id, group_id, stage, round_label,
             player_a_id, player_b_id, match_date,
             score_a, score_b, sort_order)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-         on conflict (season_id, stage, round_label, player_a_id, player_b_id) do update
-           set league_id = excluded.league_id,
+         on conflict (competition_id, stage, round_label, player_a_id, player_b_id) do update
+           set group_id = excluded.group_id,
                match_date = excluded.match_date,
                score_a = excluded.score_a,
                score_b = excluded.score_b,
                sort_order = excluded.sort_order,
                updated_at = now()`,
-        [f.season_id, f.league_id, f.stage, f.round_label,
+        [f.competition_id, f.group_id, f.stage, f.round_label,
          f.player_a_id, f.player_b_id, f.match_date,
          f.score_a, f.score_b, f.sort_order],
       );

@@ -10,17 +10,22 @@ const LeagueLeadersPlaceholder = {
     if (!hasPlaceholders) return;
     
     try {
-      const result = await ApiClient.get({ action: 'getStandings' });
-      const leagueA = (result.leagueA || []).map(r => ({
-        name: r['Player Name'],
-        Pts: Formatters.toInt(r.Pts, 0),
-        pm: Formatters.toInt(r['+/-'], 0)
-      }));
-      const leagueB = (result.leagueB || []).map(r => ({
-        name: r['Player Name'],
-        Pts: Formatters.toInt(r.Pts, 0),
-        pm: Formatters.toInt(r['+/-'], 0)
-      }));
+      const result = await ApiClient.get({
+        action: 'getStandings',
+        competitionType: 'league',
+      });
+      const groups = result.groups || [];
+      const mapRows = function (rows) {
+        return (rows || []).map(function (r) {
+          return {
+            name: r['Player Name'],
+            Pts: Formatters.toInt(r.Pts, 0),
+            pm: Formatters.toInt(r['+/-'], 0),
+          };
+        });
+      };
+      const leagueA = mapRows(groups[0] ? groups[0].rows : []);
+      const leagueB = mapRows(groups[1] ? groups[1].rows : []);
       
       // Sort by points then plus/minus
       const sortFn = (a, b) => (b.Pts - a.Pts) || (b.pm - a.pm);

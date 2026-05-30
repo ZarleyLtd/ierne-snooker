@@ -271,11 +271,15 @@ var FixturesPage = {
     if (!container) return;
 
     try {
-      var result = await ApiClient.get({ action: 'getFixtures' });
+      var result = await ApiClient.get({
+        action: 'getFixtures',
+        competitionType: 'league',
+      });
       var data = result.fixtures || [];
 
       var upcoming = data.filter(function (r) {
         return (
+          String(r.Stage || '').toLowerCase() === 'group' &&
           r['Game Week'] &&
           r['Player A'] &&
           r['Player B'] &&

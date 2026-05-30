@@ -16,8 +16,8 @@
 
 ## Backend
 - **Database**: Supabase Postgres, schema `ierne_snooker` on project `Apps` (`yzyipxvlsoxfphwobfkb`).
-- **Schema**: `leagues`, `seasons`, `season_players`, `players`, `fixtures`, `handicaps`, `breaks`. Standings are computed live via the `league_standings_v` view from `fixtures`; head-to-head tiebreaker via `head_to_head_v`. There is no stored `league_standings` table.
-- **API**: Single Edge Function `ierne-api` exposing JSON read endpoints (`getFixtures`, `getStandings`, `getHandicaps`, `getPlayers`, `getTopBreaks`). All read endpoints accept `?season=<id>` (default: row in `seasons` with `is_current = true`). Source: `supabase/functions/ierne-api/index.ts`.
+- **Schema**: `competitions`, `competition_groups`, `competition_players`, `players`, `fixtures`, `handicaps`, `breaks`. Standings via `league_standings_v`; head-to-head via `head_to_head_v`.
+- **API**: Edge Function `ierne-api` — GET (`getCompetitions`, `getCompetitionGroups`, `getFixtures`, `getStandings`, `getHandicaps`, `getPlayers`, `getPlayerComps`, `getTopBreaks`, `getBreaksForFixture`) and POST admin writes (`upsertCompetition`, `upsertCompetitionGroup`, `upsertCompetitionPlayer`, `upsertFixture` with stage `group`|`knockout`, etc.). Default comp: current row per `competitionType`. Source: `supabase/functions/ierne-api/index.ts`.
 - **Migrations**: SQL files in `supabase/migrations/`.
 - **Data sync**: `scripts/migrate-sheets-to-supabase.mjs` reads the legacy Google Sheets CSVs and upserts into Supabase. Idempotent, safe to re-run.
 - **Plans**: Architectural plans live in `docs/plans/` and stay in sync with the code.

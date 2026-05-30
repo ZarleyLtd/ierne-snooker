@@ -44,26 +44,35 @@ function printSample(label, arr) {
 const players = await call("getPlayers");
 printSample("getPlayers", players.players || []);
 
-const fixtures = await call("getFixtures");
-printSample("getFixtures", fixtures.fixtures || []);
+const fixtures = await call("getFixtures", { competitionType: "league" });
+printSample("getFixtures (league comp)", fixtures.fixtures || []);
 
-const standings = await call("getStandings");
-console.log(`\ngetStandings: leagueA=${(standings.leagueA || []).length}, leagueB=${(standings.leagueB || []).length}`);
-(standings.leagueA || []).slice(0, 3).forEach((r, i) => console.log(`  A[${i}]`, r));
-(standings.leagueB || []).slice(0, 3).forEach((r, i) => console.log(`  B[${i}]`, r));
+const standings = await call("getStandings", { competitionType: "league" });
+const groups = standings.groups || [];
+console.log(`\ngetStandings: ${groups.length} group(s)`);
+groups.forEach((g) => {
+  console.log(`  ${g.groupId} (${g.name}): ${(g.rows || []).length} rows`);
+  (g.rows || []).slice(0, 2).forEach((r, i) => console.log(`    [${i}]`, r));
+});
 
 const handicaps = await call("getHandicaps");
 console.log(`\ngetHandicaps: total=${(handicaps.handicaps || []).length}, latest=${(handicaps.latest || []).length}`);
 (handicaps.latest || []).slice(0, 3).forEach((r, i) => console.log(`  latest[${i}]`, r));
 
-const topBreaks = await call("getTopBreaks");
+const topBreaks = await call("getTopBreaks", { competitionType: "league" });
 printSample("getTopBreaks", topBreaks.breaks || []);
 
-const seasons = await call("getSeasons");
-printSample("getSeasons", seasons.seasons || []);
+const comps = await call("getCompetitions");
+printSample("getCompetitions", comps.competitions || []);
 
-const leaguesList = await call("getLeagues");
-printSample("getLeagues", leaguesList.leagues || []);
+const leagueComp = (comps.competitions || []).find((c) => c.competitionType === "league" && c.isCurrent)
+  || (comps.competitions || []).find((c) => c.competitionType === "league");
+if (leagueComp) {
+  const compGroups = await call("getCompetitionGroups", { compId: leagueComp.compId });
+  printSample(`getCompetitionGroups (${leagueComp.compId})`, compGroups.groups || []);
+} else {
+  console.log("\ngetCompetitionGroups: skipped (no league comp)");
+}
 
 const firstFixtureId = fixtures.fixtures?.[0]?.fixtureId;
 if (firstFixtureId) {
