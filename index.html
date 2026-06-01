@@ -55,10 +55,13 @@
     <script src="assets/js/config/app-config.js"></script>
     <!-- Utilities -->
     <script src="assets/js/utils/api-client.js"></script>
+    <script src="assets/js/utils/current-competition.js"></script>
+    <script src="assets/js/utils/nav-competition.js"></script>
     <script src="assets/js/utils/admin-mode.js"></script>
     <script src="assets/js/utils/formatters.js"></script>
     <script src="assets/js/utils/image-loader.js"></script>
     <!-- Components -->
+    <script src="assets/js/utils/knockout-rounds.js"></script>
     <script src="assets/js/components/knockout-renderer.js"></script>
     <script src="assets/js/components/league-standings.js"></script>
     <!-- Page modules -->
@@ -69,7 +72,6 @@
     <script src="assets/js/pages/handicaps.js"></script>
     <script src="assets/js/pages/top-breaks.js"></script>
     <script src="assets/js/pages/under-development.js"></script>
-    <script src="assets/js/pages/league-leaders.js"></script>
     <!-- Main entry point -->
     <script defer src="assets/js/main.js"></script>
   </head>
@@ -89,8 +91,8 @@
           <li>
             <a href="index.html" target="_self">Home</a>
           </li>
-          <li>
-            <a href="leagues.html" target="_self">Leagues</a>
+          <li class="nav-item-standings">
+            <a href="leagues.html" target="_self" class="nav-standings-link">Leagues</a>
           </li>
           <li>
             <a href="fixtures.html" target="_self">Fixtures</a>
@@ -152,27 +154,21 @@
           </figure>
         </div>
         <div class="entry-wrapper content__entry">
-          <section class="hero hero--image">
-            <p class="align-center">&nbsp;</p>
-            <p class="align-center">
-              Spring League 2026 in progress; Good Luck players!
-            </p>
-            <h3 class="align-center">
-              <span style="color: #169179;">
-                <a href="leagues.html" aria-label="View leagues">👉</a>
-              </span>
-              <span style="color: #169179;">Current League A Leader</span>
-            </h3>
-            <p class="align-center">[aleader]</p>
-
-            <h3 class="align-center">
-              <span style="color: #169179;">
-                <a href="leagues.html" aria-label="View leagues">👉</a>
-              </span>
-              <span style="color: #169179;">Current League B Leader</span>
-            </h3>
-            <p class="align-center">[bleader]</p>
-          </section>
+          <div id="home-carousel" class="home-carousel" aria-label="Current competitions">
+            <button type="button" class="home-carousel__arrow home-carousel__arrow--prev" id="home-carousel-prev" aria-label="Previous competition" hidden>
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6L8 12L14 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="home-carousel__viewport" id="home-carousel-viewport">
+              <div id="home-carousel-track" class="home-carousel__track">
+                <p class="align-center"><em>Loading competitions…</em></p>
+              </div>
+            </div>
+            <button type="button" class="home-carousel__arrow home-carousel__arrow--next" id="home-carousel-next" aria-label="Next competition" hidden>
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L16 12L10 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div id="home-carousel-dots" class="home-carousel__dots" aria-hidden="true"></div>
+            <p class="home-carousel__hint align-center" hidden>Swipe or use arrows to change competition</p>
+          </div>
         </div>
       </article>
     </main>
@@ -181,7 +177,7 @@
         <nav class="footer__nav">
           <ul>
             <li>
-              <a href="leagues.html" class="al" target="_self">Leagues</a>
+              <a href="leagues.html" class="al footer-standings-link" target="_self">Leagues</a>
             </li>
             <li>
               <a href="fixtures.html" class="al" target="_self">Fixtures</a>

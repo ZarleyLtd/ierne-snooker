@@ -1,23 +1,27 @@
 // Top Breaks Page - leaderboard of biggest breaks in the current season
 
 const TopBreaksPage = {
-  init: async function() {
+  load: async function () {
     const list = document.getElementById('topBreaksList');
     if (!list) return;
     const seasonLabel = document.getElementById('topBreaksSeason');
 
     try {
-      const [compsResult, result] = await Promise.all([
-        ApiClient.get({ action: 'getCompetitions' }),
-        ApiClient.get({ action: 'getTopBreaks', competitionType: 'league' }),
-      ]);
+      var params = { action: 'getTopBreaks', limit: '20' };
+      if (typeof CurrentCompetition !== 'undefined') {
+        Object.assign(params, CurrentCompetition.apiParams());
+      } else {
+        params.competitionType = 'league';
+      }
+      const result = await ApiClient.get(params);
       const breaks = Array.isArray(result.breaks) ? result.breaks : [];
 
-      const currentLeague = (compsResult.competitions || []).find(function (c) {
-        return c.isCurrent && c.competitionType === 'league';
-      });
-      if (seasonLabel && currentLeague) {
-        seasonLabel.textContent = currentLeague.name || currentLeague.compId;
+      if (seasonLabel) {
+        if (typeof CurrentCompetition !== 'undefined' && CurrentCompetition.get()) {
+          seasonLabel.textContent = CurrentCompetition.get().name || CurrentCompetition.get().compId;
+        } else {
+          seasonLabel.textContent = result.compId || 'current';
+        }
       }
 
       list.innerHTML = '';
@@ -58,5 +62,23 @@ const TopBreaksPage = {
       li.textContent = 'Could not load top breaks. Please try again later.';
       list.appendChild(li);
     }
-  }
+  },
+
+  init: async function () {
+    const list = document.getElementById('topBreaksList');
+    if (!list) return;
+
+    if (typeof CurrentCompetition !== 'undefined') {
+      window.addEventListener(CurrentCompetition.EVENT_NAME, function () {
+        TopBreaksPage.load().catch(function (e) {
+          console.error(e);
+        });
+      });
+      await CurrentCompetition.whenReady(function () {
+        return TopBreaksPage.load();
+      });
+    } else {
+      await TopBreaksPage.load();
+    }
+  },
 };

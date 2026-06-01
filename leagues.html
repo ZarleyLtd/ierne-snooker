@@ -53,6 +53,8 @@
     >
     <script src="assets/js/config/app-config.js"></script>
     <script src="assets/js/utils/api-client.js"></script>
+    <script src="assets/js/utils/current-competition.js"></script>
+    <script src="assets/js/utils/nav-competition.js"></script>
     <script src="assets/js/utils/admin-mode.js"></script>
     <script src="assets/js/utils/formatters.js"></script>
     <script src="assets/js/utils/image-loader.js"></script>
@@ -83,8 +85,8 @@
           <li>
             <a href="index.html" target="_self">Home</a>
           </li>
-          <li>
-            <a href="leagues.html" target="_self">Leagues</a>
+          <li class="nav-item-standings">
+            <a href="leagues.html" target="_self" class="nav-standings-link">Leagues</a>
           </li>
           <li>
             <a href="fixtures.html" target="_self">Fixtures</a>
@@ -144,6 +146,7 @@
           </figure>
         </div>
         <div class="entry-wrapper content__entry">
+          <p id="page-competition-name" class="align-center" style="color:#169179;font-weight:600;margin-bottom:1rem;"></p>
           <h2 class="standings-heading">Final League standings</h2>
           <div class="standings-wrapper">
             <h3 class="standings-heading">League A</h3>
@@ -162,7 +165,7 @@
         <nav class="footer__nav">
           <ul>
             <li>
-              <a href="leagues.html" class="al" target="_self">Leagues</a>
+              <a href="leagues.html" class="al footer-standings-link" target="_self">Leagues</a>
             </li>
             <li>
               <a href="fixtures.html" class="al" target="_self">Fixtures</a>

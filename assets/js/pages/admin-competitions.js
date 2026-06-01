@@ -43,6 +43,28 @@ var AdminCompetitionsPage = (function () {
     }
   }
 
+  function slugifyCompId(name) {
+    var s = String(name || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return s || 'comp';
+  }
+
+  function uniqueCompId(base, competitions) {
+    var id = base;
+    var n = 2;
+    while (
+      (competitions || []).some(function (c) {
+        return c.compId === id;
+      })
+    ) {
+      id = base + '-' + n;
+      n += 1;
+    }
+    return id;
+  }
+
   var self = {
     competitions: [],
     editing: null,
@@ -79,7 +101,6 @@ var AdminCompetitionsPage = (function () {
         modalMsg: document.getElementById('adminCompModalMsg'),
         modalCancel: document.getElementById('adminCompModalCancel'),
         form: document.getElementById('adminCompForm'),
-        cId: document.getElementById('adminCompId'),
         cName: document.getElementById('adminCompName'),
         cType: document.getElementById('adminCompType'),
         cCur: document.getElementById('adminCompCurrent'),
@@ -374,13 +395,20 @@ var AdminCompetitionsPage = (function () {
       this.updateCompTypeField();
     },
 
+    resolveCompId: function (name) {
+      if (this.activeCompId) return this.activeCompId;
+      var base = slugifyCompId(name);
+      if (!/^[a-z0-9-]+$/.test(base)) base = 'comp';
+      return uniqueCompId(base, this.competitions);
+    },
+
     persistCompHeader: function () {
       var me = this;
-      var id = me.activeCompId || (me.el.cId && me.el.cId.value.trim()) || '';
       var name = (me.el.cName && me.el.cName.value.trim()) || '';
-      if (!id || !name) {
-        return Promise.reject(new Error('Comp id and name are required.'));
+      if (!name) {
+        return Promise.reject(new Error('Name is required.'));
       }
+      var id = me.resolveCompId(name);
       var competitionType = me.el.cType ? me.el.cType.value : 'league';
       var parentCompId = me.editing && me.editing.parentCompId ? me.editing.parentCompId : null;
       return ApiClient.post('upsertCompetition', {
@@ -391,7 +419,6 @@ var AdminCompetitionsPage = (function () {
         parentCompId: parentCompId,
       }).then(function () {
         me.activeCompId = id;
-        if (me.el.cId) me.el.cId.readOnly = true;
         if (me.editing) me.editing.competitionType = competitionType;
         var c = me.competitions.find(function (x) {
           return x.compId === id;
@@ -699,10 +726,6 @@ var AdminCompetitionsPage = (function () {
       this.roster = [];
       if (this.el.modalTitle) this.el.modalTitle.textContent = 'Add Comp';
       if (this.el.form) this.el.form.reset();
-      if (this.el.cId) {
-        this.el.cId.value = '';
-        this.el.cId.readOnly = false;
-      }
       if (this.el.cType) {
         this.el.cType.value = 'league';
         this.el.cType.disabled = false;
@@ -712,7 +735,7 @@ var AdminCompetitionsPage = (function () {
       this.updateCompTypeField();
       this.applyManageUi();
       this.openCompModal();
-      if (this.el.cId) this.el.cId.focus();
+      if (this.el.cName) this.el.cName.focus();
     },
 
     openEdit: function (c) {
@@ -722,10 +745,6 @@ var AdminCompetitionsPage = (function () {
       this.editing = c;
       this.activeCompId = c.compId;
       if (this.el.modalTitle) this.el.modalTitle.textContent = 'Edit Comp';
-      if (this.el.cId) {
-        this.el.cId.value = c.compId;
-        this.el.cId.readOnly = true;
-      }
       if (this.el.cName) this.el.cName.value = c.name || '';
       if (this.el.cCur) this.el.cCur.checked = !!c.isCurrent;
       if (this.el.cType) {
@@ -742,16 +761,12 @@ var AdminCompetitionsPage = (function () {
     saveComp: function (e) {
       if (e) e.preventDefault();
       var me = this;
-      var id = (me.el.cId && me.el.cId.value.trim()) || '';
       var name = (me.el.cName && me.el.cName.value.trim()) || '';
-      if (!id || !name) {
-        me.flash('Comp id and name are required.', true);
+      if (!name) {
+        me.flash('Name is required.', true);
         return;
       }
-      if (!/^[a-z0-9-]+$/.test(id)) {
-        me.flash('Comp id: lowercase letters, numbers, and hyphens only.', true);
-        return;
-      }
+      var id = me.resolveCompId(name);
       var competitionType = me.el.cType ? me.el.cType.value : 'league';
       if (me.el.cSave) me.el.cSave.disabled = true;
 

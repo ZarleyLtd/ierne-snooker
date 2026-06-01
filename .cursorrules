@@ -22,6 +22,10 @@
 - **Data sync**: `scripts/migrate-sheets-to-supabase.mjs` reads the legacy Google Sheets CSVs and upserts into Supabase. Idempotent, safe to re-run.
 - **Plans**: Architectural plans live in `docs/plans/` and stay in sync with the code.
 
+## Reference project (UI / layout)
+- **PubliiCrossguns** (`C:\CursorSites\PubliiCrossguns`) is the canonical model for this site’s Publii-style UI: navigation (including admin menu spacing), fixture rows (centered list, aligned **V** button), admin fixture dialogs, and similar league/admin screens.
+- When adding or fixing layout/CSS for those areas, compare and align with the equivalent files in PubliiCrossguns (especially `assets/css/style.css` and matching page JS) before inventing new patterns.
+
 ## Rules for AI (Cursor)
 1. **HTML Syncing**: Whenever I ask to update the "Header" or "Footer," always update the code in the `/components/` folder first, then propagate to all `.html` files.
 2. **JavaScript Organization**: When adding or modifying JavaScript functionality:

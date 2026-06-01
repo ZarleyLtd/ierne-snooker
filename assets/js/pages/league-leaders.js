@@ -36,9 +36,14 @@ const LeagueLeadersPlaceholder = {
       const aLeader = this.getTopPlayers(leagueA);
       const bLeader = this.getTopPlayers(leagueB);
       
-      // Replace placeholders
-      document.querySelectorAll('p, h3, div, span').forEach(el => {
-        el.innerHTML = el.innerHTML
+      // Replace placeholders only where they appear (avoid rewriting unrelated
+      // nodes — e.g. mobile menu overlay divs — which would drop event listeners).
+      document.querySelectorAll('p, h3, div, span').forEach(function (el) {
+        var html = el.innerHTML;
+        if (html.indexOf('[aleader]') === -1 && html.indexOf('[bleader]') === -1) {
+          return;
+        }
+        el.innerHTML = html
           .replace(/\[aleader\]/g, aLeader)
           .replace(/\[bleader\]/g, bLeader);
       });

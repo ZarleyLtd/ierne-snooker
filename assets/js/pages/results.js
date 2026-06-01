@@ -19,6 +19,44 @@ var ResultsPage = {
     return typeof AdminMode !== 'undefined' && AdminMode.isUnlocked();
   },
 
+  fixtureGroup: function (row) {
+    return String(row['Group'] || row['League'] || '').trim();
+  },
+
+  highlightSelectedLeague: function () {
+    var selected = document.querySelector('input[name="league"]:checked');
+    if (!selected) return;
+    document.querySelectorAll('.league-label').forEach(function (label) {
+      var input = label.querySelector('input[name="league"]');
+      if (input && input.value === selected.value) {
+        label.style.fontWeight = 'bold';
+        label.style.border = '3px solid green';
+        label.style.borderRadius = '4px';
+      } else {
+        label.style.fontWeight = 'normal';
+        label.style.border = '1px solid transparent';
+      }
+    });
+  },
+
+  selectedLeague: function () {
+    var el = document.querySelector('input[name="league"]:checked');
+    return el ? el.value : 'All';
+  },
+
+  bindLeagueFilter: function () {
+    var self = this;
+    document.querySelectorAll('input[name="league"]').forEach(function (rb) {
+      rb.addEventListener('change', function () {
+        self.highlightSelectedLeague();
+        self.loadResults().catch(function (e) {
+          console.error(e);
+        });
+      });
+    });
+    this.highlightSelectedLeague();
+  },
+
   init: async function () {
     var container = document.getElementById('results-list');
     if (!container) return;
@@ -33,6 +71,14 @@ var ResultsPage = {
         });
       });
 
+      if (typeof CurrentCompetition !== 'undefined') {
+        window.addEventListener(CurrentCompetition.EVENT_NAME, function () {
+          self.loadResults().catch(function (e) {
+            console.error(e);
+          });
+        });
+      }
+
       if (typeof FixturesPage !== 'undefined' && FixturesPage.RESULT_SAVED_EVENT) {
         window.addEventListener(FixturesPage.RESULT_SAVED_EVENT, function () {
           self.init().catch(function (e) {
@@ -40,28 +86,55 @@ var ResultsPage = {
           });
         });
       }
+
+      this.bindLeagueFilter();
     }
 
     if (typeof FixturesPage !== 'undefined') {
       FixturesPage.bindResultDialog();
     }
 
-    try {
-      var result = await ApiClient.get({
-        action: 'getFixtures',
-        competitionType: 'league',
+    if (typeof CurrentCompetition !== 'undefined') {
+      await CurrentCompetition.whenReady(function () {
+        return self.loadResults();
       });
+    } else {
+      await this.loadResults();
+    }
+  },
+
+  loadResults: async function () {
+    var container = document.getElementById('results-list');
+    if (!container) return;
+
+    try {
+      var params = { action: 'getFixtures' };
+      if (typeof CurrentCompetition !== 'undefined') {
+        Object.assign(params, CurrentCompetition.apiParams());
+      } else {
+        params.competitionType = 'league';
+      }
+      var result = await ApiClient.get(params);
       var data = result.fixtures || [];
 
+      var isKnockout =
+        typeof CurrentCompetition !== 'undefined' && CurrentCompetition.isKnockout();
+      var group = this.selectedLeague();
+
       var rows = data.filter(function (r) {
-        return (
-          String(r.Stage || '').toLowerCase() === 'group' &&
+        var has =
           r['Game Week'] &&
           r['Player A'] &&
           r['Player B'] &&
           r['Result'] &&
-          String(r['Result']).trim() !== ''
-        );
+          String(r['Result']).trim() !== '';
+        if (!has) return false;
+        if (!isKnockout) {
+          var stage = String(r.Stage || '').toLowerCase();
+          if (stage === 'knockout') return false;
+        }
+        if (group === 'All') return true;
+        return ResultsPage.fixtureGroup(r) === group;
       });
 
       if (rows.length === 0) {
@@ -70,8 +143,18 @@ var ResultsPage = {
       }
 
       var groupedWeeks = this.groupByGameWeek(rows);
+      var winnersByCode = {};
+      if (isKnockout && typeof KnockoutRounds !== 'undefined') {
+        winnersByCode = KnockoutRounds.buildRoundWinnersMap(data);
+        groupedWeeks.orderedWeeks.sort(function (a, b) {
+          return KnockoutRounds.sortKeyFor(a) - KnockoutRounds.sortKeyFor(b);
+        });
+      }
 
-      this.renderGroups(container, groupedWeeks.grouped, groupedWeeks.orderedWeeks);
+      this.renderGroups(container, groupedWeeks.grouped, groupedWeeks.orderedWeeks, {
+        isKnockout: isKnockout,
+        winnersByCode: winnersByCode,
+      });
     } catch (error) {
       console.error('Failed to load results:', error);
       container.innerHTML = '<p><em>Error loading results.</em></p>';
@@ -94,16 +177,35 @@ var ResultsPage = {
     return { grouped: grouped, orderedWeeks: orderedWeeks };
   },
 
-  renderGroups: function (container, grouped, orderedWeeks) {
+  knockoutWeekLabel: function (week) {
+    if (typeof KnockoutRounds !== 'undefined') {
+      return KnockoutRounds.labelFor(week);
+    }
+    return this.KO_LABELS[week] || week;
+  },
+
+  knockoutPlayerLabel: function (match, slot, winnersByCode) {
+    if (typeof KnockoutRounds !== 'undefined') {
+      return KnockoutRounds.resolvedPlayerName(match, slot, winnersByCode);
+    }
+    return slot === 'a' ? match['Player A'] || '' : match['Player B'] || '';
+  },
+
+  renderGroups: function (container, grouped, orderedWeeks, options) {
     var self = this;
+    options = options || {};
+    var isKnockout = !!options.isKnockout;
+    var winnersByCode = options.winnersByCode || {};
     container.innerHTML = '';
 
     orderedWeeks.forEach(function (week) {
       var h3 = document.createElement('h3');
       var num = parseInt(week, 10);
-      h3.textContent = isNaN(num)
-        ? self.KO_LABELS[week] || week
-        : 'Game Week ' + week;
+      h3.textContent = isKnockout
+        ? self.knockoutWeekLabel(week)
+        : isNaN(num)
+          ? self.KO_LABELS[week] || week
+          : 'Game Week ' + week;
       h3.style.marginTop = '1.5em';
       h3.style.marginBottom = '0.5em';
       h3.style.fontWeight = 'bold';
@@ -123,8 +225,14 @@ var ResultsPage = {
         div.setAttribute('data-fixture-id', fid);
         div.setAttribute('data-player-a-id', String(match.playerAId || '').trim());
         div.setAttribute('data-player-b-id', String(match.playerBId || '').trim());
-        div.setAttribute('data-player-a-name', match['Player A'] || '');
-        div.setAttribute('data-player-b-name', match['Player B'] || '');
+        var nameA = self.knockoutPlayerLabel(match, 'a', winnersByCode);
+        var nameB = self.knockoutPlayerLabel(match, 'b', winnersByCode);
+        if (!isKnockout) {
+          nameA = match['Player A'] || '';
+          nameB = match['Player B'] || '';
+        }
+        div.setAttribute('data-player-a-name', nameA);
+        div.setAttribute('data-player-b-name', nameB);
         div.setAttribute('data-match-date', match['Match Date'] || '');
 
         var sa = match.scoreA != null && match.scoreA !== '' ? Number(match.scoreA) : 0;
@@ -140,7 +248,7 @@ var ResultsPage = {
         var bScore = parseInt(parts[1] ? parts[1].trim() : '', 10);
 
         var playerA = document.createElement('span');
-        playerA.textContent = match['Player A'];
+        playerA.textContent = nameA;
         playerA.style.flex = '1';
         playerA.style.textAlign = 'right';
         if (!isNaN(aScore) && !isNaN(bScore) && aScore > bScore) playerA.style.fontWeight = 'bold';
@@ -156,9 +264,9 @@ var ResultsPage = {
             'Edit result ' +
               resultStr +
               ': ' +
-              match['Player A'] +
+              nameA +
               ' vs ' +
-              match['Player B']
+              nameB
           );
           resultEl.addEventListener('click', function () {
             FixturesPage.openResultDialog(div);
@@ -177,7 +285,7 @@ var ResultsPage = {
         resultEl.style.textAlign = 'center';
 
         var playerB = document.createElement('span');
-        playerB.textContent = match['Player B'];
+        playerB.textContent = nameB;
         playerB.style.flex = '1';
         playerB.style.textAlign = 'left';
         if (!isNaN(aScore) && !isNaN(bScore) && bScore > aScore) playerB.style.fontWeight = 'bold';

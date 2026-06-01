@@ -5,6 +5,16 @@ document.addEventListener('DOMContentLoaded', function() {
   // Initialize image loading
   ImageLoader.init();
 
+  // Shared current-competition context (public pages)
+  if (typeof CurrentCompetition !== 'undefined') {
+    CurrentCompetition.init().catch(function (err) {
+      console.error('CurrentCompetition init failed:', err);
+    });
+  }
+  if (typeof NavCompetition !== 'undefined') {
+    NavCompetition.init();
+  }
+
   // Admin pages (require Admin Mode for actions)
   if (document.getElementById('adminFixturesRoot') && typeof AdminFixturesPage !== 'undefined') {
     AdminFixturesPage.init();
@@ -26,12 +36,8 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Page detection and initialization
-  // Home page - Knockout tournament display
-  if (document.getElementById('champ-semis') ||
-      document.getElementById('champ-final') ||
-      document.getElementById('plate-qf') ||
-      document.getElementById('plate-sf') ||
-      document.getElementById('plate-final')) {
+  // Home page — swipeable current competitions
+  if (document.getElementById('home-carousel') && typeof IndexPage !== 'undefined') {
     IndexPage.init();
   }
 
@@ -49,6 +55,11 @@ document.addEventListener('DOMContentLoaded', function() {
   if (document.getElementById('league-one') ||
       document.getElementById('league-two')) {
     LeaguesPage.init();
+  }
+
+  // Knockout bracket page
+  if (document.getElementById('knockout-bracket') && typeof KnockoutPage !== 'undefined') {
+    KnockoutPage.init();
   }
 
   // Handicaps page

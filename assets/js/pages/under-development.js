@@ -9,10 +9,13 @@ const UnderDevelopmentPage = {
     if (!hasLeagueContainers) return;
     
     try {
-      const result = await ApiClient.get({
-        action: 'getStandings',
-        competitionType: 'league',
-      });
+      var params = { action: 'getStandings' };
+      if (typeof CurrentCompetition !== 'undefined') {
+        Object.assign(params, CurrentCompetition.apiParams());
+      } else {
+        params.competitionType = 'league';
+      }
+      const result = await ApiClient.get(params);
       const groups = result.groups || [];
       const containerIds = ['league-a', 'league-b'];
 

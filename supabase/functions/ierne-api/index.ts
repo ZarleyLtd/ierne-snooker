@@ -231,6 +231,72 @@ async function loadCompetitionGroups(compId: string): Promise<GroupRow[]> {
 }
 
 const KNOCKOUT_GROUP_ID = "ko";
+const WINNER_OF_PREFIX = "wo:";
+
+const KNOCKOUT_ROUND_LABELS: Record<string, string> = {
+  PO1: "Play-off 1",
+  PO2: "Play-off 2",
+  PO3: "Play-off 3",
+  PO4: "Play-off 4",
+  QF1: "Quarter-final 1",
+  QF2: "Quarter-final 2",
+  QF3: "Quarter-final 3",
+  QF4: "Quarter-final 4",
+  SF1: "Semi-final 1",
+  SF2: "Semi-final 2",
+  F: "Final",
+  PQ: "Plate Quarters",
+  PS: "Plate Semis",
+  PF: "Plate Final",
+  CS: "Championship Semis",
+  CF: "Championship Final",
+};
+
+function knockoutRoundLabel(code: string): string {
+  const c = code.trim();
+  if (!c) return "";
+  if (KNOCKOUT_ROUND_LABELS[c]) return KNOCKOUT_ROUND_LABELS[c];
+  const koLast = c.match(/^KO Last (\d+)$/i);
+  if (koLast) {
+    const n = parseInt(koLast[1], 10);
+    if (n === 2) return "Final";
+    if (n === 4) return "Semi-finals";
+    if (n === 8) return "Quarter-finals";
+    if (n === 16) return "Last 16";
+    return `Last ${n}`;
+  }
+  if (/^KO Pre-/i.test(c)) return "Preliminary";
+  return c;
+}
+
+function winnerOfPlayerName(roundCode: string): string {
+  const label = knockoutRoundLabel(roundCode);
+  const base = label || roundCode.trim();
+  return base ? `${base} Winner` : "Winner";
+}
+
+function isWinnerOfPlayerId(playerId: string): boolean {
+  return playerId.startsWith(WINNER_OF_PREFIX);
+}
+
+async function ensureWinnerOfPlayers(
+  sql: ReturnType<typeof postgres>,
+  ...playerIds: string[]
+): Promise<void> {
+  for (const playerId of playerIds) {
+    if (!isWinnerOfPlayerId(playerId)) continue;
+    const roundCode = playerId.slice(WINNER_OF_PREFIX.length);
+    if (!roundCode) continue;
+    const playerName = winnerOfPlayerName(roundCode);
+    await sql`
+      insert into ierne_snooker.players (player_id, player_name, active, updated_at)
+      values (${playerId}, ${playerName}, false, now())
+      on conflict (player_id) do update set
+        player_name = excluded.player_name,
+        updated_at = now()
+    `;
+  }
+}
 
 async function ensureKnockoutCompGroup(compId: string): Promise<void> {
   const sql = db();
@@ -469,6 +535,7 @@ async function handleGetPlayers(req: Request): Promise<Response> {
              and f.score_a is not null
              and f.score_b is not null
         ) mc on true
+       where p.player_id not like ${WINNER_OF_PREFIX + "%"}
        order by p.player_name asc
     `;
     return jsonResponse({
@@ -572,6 +639,12 @@ async function handleGetFixtures(req: Request): Promise<Response> {
   const fixtures = (fixtureRows as unknown as FixtureRow[]).map((r) => {
     const a = playerMap.get(r.player_a_id);
     const b = playerMap.get(r.player_b_id);
+    const nameA = isWinnerOfPlayerId(r.player_a_id)
+      ? winnerOfPlayerName(r.player_a_id.slice(WINNER_OF_PREFIX.length))
+      : (a?.player_name ?? "");
+    const nameB = isWinnerOfPlayerId(r.player_b_id)
+      ? winnerOfPlayerName(r.player_b_id.slice(WINNER_OF_PREFIX.length))
+      : (b?.player_name ?? "");
     const result = r.score_a != null && r.score_b != null
       ? `${r.score_a}-${r.score_b}`
       : "";
@@ -580,8 +653,8 @@ async function handleGetFixtures(req: Request): Promise<Response> {
       "Game Week": r.round_label,
       "Group": r.group_id,
       "Stage": r.stage,
-      "Player A": a?.player_name ?? "",
-      "Player B": b?.player_name ?? "",
+      "Player A": nameA,
+      "Player B": nameB,
       "Match Date": r.match_date ?? "",
       "Result": result,
       scoreA: r.score_a,
@@ -1225,6 +1298,7 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   if (!Number.isFinite(sortOrder)) return errorResponse("sortOrder must be a number");
 
   const sql = db();
+  await ensureWinnerOfPlayers(sql, playerAId, playerBId);
   const sa = scoreA === null ? null : Math.trunc(scoreA);
   const sb = scoreB === null ? null : Math.trunc(scoreB);
   const so = Math.trunc(sortOrder);

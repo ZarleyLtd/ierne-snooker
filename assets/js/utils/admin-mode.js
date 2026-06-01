@@ -131,15 +131,18 @@ var AdminMode = {
   },
 
   bindNavToggle: function () {
+    if (this._navToggleBound) return;
+    this._navToggleBound = true;
     var self = this;
-    document.querySelectorAll('.nav-admin-toggle').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        if (self.isUnlocked()) {
-          self.lock();
-        } else {
-          self.openDialog();
-        }
-      });
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.nav-admin-toggle');
+      if (!btn) return;
+      e.preventDefault();
+      if (self.isUnlocked()) {
+        self.lock();
+      } else {
+        self.openDialog();
+      }
     });
   },
 };

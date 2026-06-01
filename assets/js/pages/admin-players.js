@@ -128,7 +128,7 @@ var AdminPlayersPage = (function () {
         .map(function (p) {
           return {
             id: p.playerId,
-            name: p.playerName || p.playerId,
+            name: p.playerName || 'Unnamed player',
             meta: formatPlayerMeta(p),
           };
         })

@@ -88,11 +88,6 @@
         </div>
         <form id="adminCompForm">
           <div class="admin-form-group">
-            <label for="adminCompId">Comp id</label>
-            <input type="text" id="adminCompId" required pattern="[a-z0-9-]+" title="Lowercase letters, numbers, and hyphens only" />
-            <small>e.g. spring-26, winter25-knockout</small>
-          </div>
-          <div class="admin-form-group">
             <label for="adminCompName">Name</label>
             <input type="text" id="adminCompName" required />
           </div>
@@ -159,7 +154,7 @@
             <div class="admin-form-row admin-form-row--id-order">
               <div class="admin-form-row__field admin-form-row__field--grow">
                 <label for="adminCompGroupId">Group id</label>
-                <input type="text" id="adminCompGroupId" required pattern="[a-z0-9-]+" />
+                <input type="text" id="adminCompGroupId" required pattern="[-a-z0-9]+" />
               </div>
               <div class="admin-form-row__field admin-form-row__field--order">
                 <label for="adminCompGroupOrder">Order</label>
