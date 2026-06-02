@@ -180,11 +180,6 @@ var KnockoutBracket = (function () {
     return max;
   }
 
-  function yPercent(matchIndex, matchCount) {
-    if (matchCount <= 0) return 50;
-    return ((matchIndex + 0.5) / matchCount) * 100;
-  }
-
   function findMatchIndexByRoundCode(stage, roundCode) {
     var code = String(roundCode || '').trim();
     if (!code || !stage || !stage.matches) return -1;
@@ -221,17 +216,86 @@ var KnockoutBracket = (function () {
     return links;
   }
 
-  function buildFallbackLinks(leftStage, rightStage) {
+  /** Standard bracket pairing with alternating a/b slots per right-side match. */
+  function buildConventionLinks(leftStage, rightStage) {
     var links = [];
     var leftCount = leftStage.matches.length;
     var rightCount = rightStage.matches.length;
+    if (!leftCount || !rightCount) return links;
+
     for (var r = 0; r < rightCount; r++) {
       var leftStart = Math.floor((r * leftCount) / rightCount);
-      var leftEnd = Math.max(leftStart, Math.floor(((r + 1) * leftCount) / rightCount) - 1);
+      var leftEnd = Math.floor(((r + 1) * leftCount) / rightCount) - 1;
+      var slotIdx = 0;
       for (var l = leftStart; l <= leftEnd; l++) {
-        links.push({ leftIdx: l, rightIdx: r, rightSlot: 'a' });
+        links.push({
+          leftIdx: l,
+          rightIdx: r,
+          rightSlot: slotIdx === 0 ? 'a' : 'b',
+        });
+        slotIdx++;
       }
     }
+    return links;
+  }
+
+  /** Link prior-round matches when a player is placed directly in the next round. */
+  function appendSharedPlayerLinks(leftStage, rightStage, links, linkedLeft) {
+    leftStage.matches.forEach(function (lm, leftIdx) {
+      if (linkedLeft[leftIdx]) return;
+
+      var leftIds = {};
+      var leftNames = {};
+      [lm.playerAId, lm.playerBId].forEach(function (id) {
+        if (id) leftIds[String(id)] = true;
+      });
+      [lm['Player A'], lm['Player B']].forEach(function (name) {
+        if (name) leftNames[String(name).trim()] = true;
+      });
+
+      rightStage.matches.forEach(function (rm, rightIdx) {
+        if (linkedLeft[leftIdx]) return;
+        [
+          { key: 'playerAId', slot: 'a', nameKey: 'Player A' },
+          { key: 'playerBId', slot: 'b', nameKey: 'Player B' },
+        ].forEach(function (pair) {
+          if (linkedLeft[leftIdx]) return;
+          var pid = rm[pair.key];
+          if (
+            typeof KnockoutRounds !== 'undefined' &&
+            KnockoutRounds.isWinnerOfPlayerId(pid)
+          ) {
+            return;
+          }
+          var pname = String(rm[pair.nameKey] || '').trim();
+          if (
+            (pid && leftIds[String(pid)]) ||
+            (pname && leftNames[pname])
+          ) {
+            links.push({ leftIdx: leftIdx, rightIdx: rightIdx, rightSlot: pair.slot });
+            linkedLeft[leftIdx] = true;
+          }
+        });
+      });
+    });
+  }
+
+  function buildLinks(leftStage, rightStage) {
+    var links = buildFeederLinks(leftStage, rightStage);
+    var linkedLeft = {};
+    links.forEach(function (link) {
+      linkedLeft[link.leftIdx] = true;
+    });
+
+    appendSharedPlayerLinks(leftStage, rightStage, links, linkedLeft);
+
+    buildConventionLinks(leftStage, rightStage).forEach(function (link) {
+      if (!linkedLeft[link.leftIdx]) {
+        links.push(link);
+        linkedLeft[link.leftIdx] = true;
+      }
+    });
+
     return links;
   }
 
@@ -320,18 +384,9 @@ var KnockoutBracket = (function () {
     svg.setAttribute('viewBox', '0 0 32 100');
     svg.setAttribute('preserveAspectRatio', 'none');
 
-    var links = buildFeederLinks(leftStage, rightStage);
-    if (!links.length) {
-      links = buildFallbackLinks(leftStage, rightStage);
-    }
-
-    var leftCount = leftStage.matches.length;
-    var rightCount = rightStage.matches.length;
+    var links = buildLinks(leftStage, rightStage);
 
     links.forEach(function (link) {
-      var yL = yPercent(link.leftIdx, leftCount);
-      var yR = yPercent(link.rightIdx, rightCount);
-
       var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('fill', 'none');
       path.setAttribute('stroke', '#169179');
@@ -342,7 +397,7 @@ var KnockoutBracket = (function () {
       path.setAttribute('data-left-idx', String(link.leftIdx));
       path.setAttribute('data-right-idx', String(link.rightIdx));
       path.setAttribute('data-right-slot', link.rightSlot);
-      path.setAttribute('d', pathD(yL, yR));
+      path.setAttribute('d', 'M0,50 H12 V50 H32');
       svg.appendChild(path);
     });
 
@@ -358,10 +413,39 @@ var KnockoutBracket = (function () {
     return slot === 'b' ? rows[rows.length - 1] : rows[0];
   }
 
-  function yPercentInArena(el, arenaRect) {
+  function linkAnchorEl(side, matchEl, slot) {
+    if (side === 'left') return matchEl;
+    var row = matchRowForSlot(matchEl, slot);
+    if (!row) return matchEl;
+    return row.querySelector('.ko-bracket-match__name') || row;
+  }
+
+  function yPercentInRect(el, refTop, refHeight) {
+    if (!el || refHeight < 1) return 50;
     var r = el.getBoundingClientRect();
-    var y = ((r.top + r.height / 2) - arenaRect.top) / arenaRect.height * 100;
+    var y = ((r.top + r.height / 2) - refTop) / refHeight * 100;
     return Math.max(3, Math.min(97, y));
+  }
+
+  function sharedVerticalMetrics(leftCol, rightCol, connArena) {
+    var leftArena = leftCol.querySelector('.ko-bracket-stage__arena');
+    var rightArena = rightCol.querySelector('.ko-bracket-stage__arena');
+    var leftRect = leftArena ? leftArena.getBoundingClientRect() : null;
+    var rightRect = rightArena ? rightArena.getBoundingClientRect() : null;
+    var connRect = connArena ? connArena.getBoundingClientRect() : null;
+
+    var refTop = Infinity;
+    var refHeight = 0;
+    [leftRect, rightRect, connRect].forEach(function (rect) {
+      if (!rect || rect.height < 1) return;
+      refTop = Math.min(refTop, rect.top);
+      refHeight = Math.max(refHeight, rect.height);
+    });
+
+    if (!Number.isFinite(refTop) || refHeight < 1) {
+      return null;
+    }
+    return { refTop: refTop, refHeight: refHeight };
   }
 
   function updateConnectorPaths(scrollTrack) {
@@ -369,12 +453,12 @@ var KnockoutBracket = (function () {
     connectors.forEach(function (conn) {
       var leftCol = conn.previousElementSibling;
       var rightCol = conn.nextElementSibling;
-      var arena = conn.querySelector('.ko-bracket-connector__arena');
+      var connArena = conn.querySelector('.ko-bracket-connector__arena');
       var svg = conn.querySelector('.ko-bracket-connector__svg');
       if (
         !leftCol ||
         !rightCol ||
-        !arena ||
+        !connArena ||
         !svg ||
         !leftCol.classList.contains('ko-bracket-stage') ||
         !rightCol.classList.contains('ko-bracket-stage')
@@ -382,10 +466,8 @@ var KnockoutBracket = (function () {
         return;
       }
 
-      var leftArena = leftCol.querySelector('.ko-bracket-stage__arena');
-      if (!leftArena) return;
-      var arenaRect = leftArena.getBoundingClientRect();
-      if (arenaRect.height < 1) return;
+      var metrics = sharedVerticalMetrics(leftCol, rightCol, connArena);
+      if (!metrics) return;
 
       var leftMatches = leftCol.querySelectorAll('.ko-bracket-match');
       var rightMatches = rightCol.querySelectorAll('.ko-bracket-match');
@@ -398,8 +480,16 @@ var KnockoutBracket = (function () {
         var rightCard = rightMatches[rightIdx];
         if (!leftCard || !rightCard) return;
 
-        var yL = yPercentInArena(leftCard, arenaRect);
-        var yR = yPercentInArena(matchRowForSlot(rightCard, slot), arenaRect);
+        var yL = yPercentInRect(
+          linkAnchorEl('left', leftCard, slot),
+          metrics.refTop,
+          metrics.refHeight
+        );
+        var yR = yPercentInRect(
+          linkAnchorEl('right', rightCard, slot),
+          metrics.refTop,
+          metrics.refHeight
+        );
         path.setAttribute('d', pathD(yL, yR));
       });
     });
@@ -480,13 +570,15 @@ var KnockoutBracket = (function () {
       });
       if (prev) {
         var showPrev = count > 1 && idx > 0;
-        prev.hidden = !showPrev;
+        prev.classList.toggle('is-unavailable', !showPrev);
         prev.disabled = !showPrev;
+        prev.setAttribute('aria-hidden', showPrev ? 'false' : 'true');
       }
       if (next) {
         var showNext = count > 1 && idx < count - 1;
-        next.hidden = !showNext;
+        next.classList.toggle('is-unavailable', !showNext);
         next.disabled = !showNext;
+        next.setAttribute('aria-hidden', showNext ? 'false' : 'true');
       }
     }
 
@@ -600,7 +692,7 @@ var KnockoutBracket = (function () {
     var hint = document.createElement('p');
     hint.className = 'ko-bracket-shell__hint align-center';
     hint.textContent =
-      'Swipe or use arrows — earlier stages on the left (e.g. play-offs), later on the right (e.g. final)';
+      'Use arrows — earlier stages on the left (e.g. play-offs), later on the right (e.g. final)';
 
     shell.appendChild(viewport);
     shell.appendChild(dotsWrap);
@@ -613,9 +705,17 @@ var KnockoutBracket = (function () {
       updateConnectorPaths(scrollTrack);
     }
 
-    requestAnimationFrame(function () {
-      requestAnimationFrame(layoutConnectors);
-    });
+    function scheduleLayoutConnectors() {
+      layoutConnectors();
+      requestAnimationFrame(function () {
+        requestAnimationFrame(layoutConnectors);
+      });
+      [50, 150, 400].forEach(function (delay) {
+        setTimeout(layoutConnectors, delay);
+      });
+    }
+
+    scheduleLayoutConnectors();
 
     if (!scrollTrack._koResizeBound) {
       scrollTrack._koResizeBound = true;
@@ -624,12 +724,41 @@ var KnockoutBracket = (function () {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(layoutConnectors, 120);
       });
+
+      if (typeof ResizeObserver !== 'undefined') {
+        var layoutTimer;
+        var ro = new ResizeObserver(function () {
+          clearTimeout(layoutTimer);
+          layoutTimer = setTimeout(layoutConnectors, 16);
+        });
+        ro.observe(scrollTrack);
+        scrollTrack.querySelectorAll('.ko-bracket-stage__arena, .ko-bracket-connector__arena').forEach(
+          function (el) {
+            ro.observe(el);
+          }
+        );
+        scrollTrack._koResizeObserver = ro;
+      }
     }
+
+    scrollTrack._koLayoutConnectors = layoutConnectors;
 
     bindScroll(block, viewport, scrollTrack, stages, stageTitleEl);
   }
 
   return {
+    relayout: function (root) {
+      if (!root) return;
+      root.querySelectorAll('.ko-bracket-shell__track').forEach(function (track) {
+        if (typeof track._koLayoutConnectors === 'function') {
+          track._koLayoutConnectors();
+        } else {
+          syncConnectorHeights(track);
+          updateConnectorPaths(track);
+        }
+      });
+    },
+
     render: function (root, fixtures, options) {
       if (!root) return;
       root.innerHTML = '';

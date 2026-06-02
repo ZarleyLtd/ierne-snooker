@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Page detection and initialization
-  // Home page — swipeable current competitions
+  // Home page — current competitions carousel
   if (document.getElementById('home-carousel') && typeof IndexPage !== 'undefined') {
     IndexPage.init();
   }

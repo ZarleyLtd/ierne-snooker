@@ -149,6 +149,17 @@ var KnockoutRounds = (function () {
       return ADMIN_STAGES.slice();
     },
 
+    adminStagesForPlayerCount: function (playerCount) {
+      var n = Math.max(0, parseInt(playerCount, 10) || 0);
+      return ADMIN_STAGES.filter(function (stage) {
+        if (stage.id === 'L32') return n >= 16;
+        if (stage.id === 'L16') return n >= 8;
+        if (stage.id === 'QF') return n >= 4;
+        if (stage.id === 'SF') return n >= 2;
+        return true;
+      });
+    },
+
     matchNumbersForStage: function (stageId) {
       var stage = ADMIN_STAGES.find(function (s) {
         return s.id === stageId;

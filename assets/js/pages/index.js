@@ -1,10 +1,8 @@
-// Home Page — swipeable cards for each current competition (league KO stages omitted; shown on parent league card).
+// Home Page — carousel cards for each current competition (league KO stages omitted; shown on parent league card).
 
 const IndexPage = {
   _carouselIndex: 0,
-  _dragStartX: null,
-  _dragActive: false,
-  _swipeBound: false,
+  _controlsBound: false,
 
   viewport: function () {
     return document.getElementById('home-carousel-viewport');
@@ -159,6 +157,7 @@ const IndexPage = {
     IndexPage.updateCarouselHint(comps.length);
     IndexPage.bindCarouselControls();
     IndexPage.updateCarouselPosition(false);
+    IndexPage.relayoutKnockoutBrackets();
   },
 
   updateCompHeader: function () {
@@ -180,8 +179,8 @@ const IndexPage = {
   },
 
   bindCarouselControls: function () {
-    if (IndexPage._swipeBound) return;
-    IndexPage._swipeBound = true;
+    if (IndexPage._controlsBound) return;
+    IndexPage._controlsBound = true;
 
     var prev = document.getElementById('home-carousel-prev');
     var next = document.getElementById('home-carousel-next');
@@ -196,77 +195,9 @@ const IndexPage = {
       });
     }
 
-    var viewport = IndexPage.viewport();
-    if (!viewport) return;
-
-    viewport.addEventListener(
-      'touchstart',
-      function (e) {
-        if (!e.touches || !e.touches.length) return;
-        IndexPage._dragStartX = e.touches[0].clientX;
-        IndexPage._dragActive = true;
-      },
-      { passive: true }
-    );
-
-    viewport.addEventListener(
-      'touchend',
-      function (e) {
-        IndexPage.finishDrag(
-          e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : null
-        );
-      },
-      { passive: true }
-    );
-
-    viewport.addEventListener('touchcancel', function () {
-      IndexPage._dragStartX = null;
-      IndexPage._dragActive = false;
-    });
-
-    viewport.addEventListener('pointerdown', function (e) {
-      if (e.pointerType === 'touch') return;
-      IndexPage._dragStartX = e.clientX;
-      IndexPage._dragActive = true;
-      viewport.setPointerCapture(e.pointerId);
-    });
-
-    viewport.addEventListener('pointerup', function (e) {
-      if (e.pointerType === 'touch') return;
-      IndexPage.finishDrag(e.clientX);
-      try {
-        viewport.releasePointerCapture(e.pointerId);
-      } catch (_err) {
-        /* ignore */
-      }
-    });
-
-    viewport.addEventListener('pointercancel', function (e) {
-      if (e.pointerType === 'touch') return;
-      IndexPage._dragStartX = null;
-      IndexPage._dragActive = false;
-    });
-
     window.addEventListener('resize', function () {
       IndexPage.updateCarouselPosition(false);
     });
-  },
-
-  finishDrag: function (endX) {
-    if (!IndexPage._dragActive || IndexPage._dragStartX == null || endX == null) {
-      IndexPage._dragStartX = null;
-      IndexPage._dragActive = false;
-      return;
-    }
-    var delta = endX - IndexPage._dragStartX;
-    IndexPage._dragStartX = null;
-    IndexPage._dragActive = false;
-    if (Math.abs(delta) < 40) return;
-    if (delta < 0) {
-      IndexPage.goToSlide(IndexPage._carouselIndex + 1, true);
-    } else {
-      IndexPage.goToSlide(IndexPage._carouselIndex - 1, true);
-    }
   },
 
   syncViewportHeight: function () {
@@ -287,13 +218,15 @@ const IndexPage = {
 
     if (prev) {
       var showPrev = count > 1 && idx > 0;
-      prev.hidden = !showPrev;
+      prev.classList.toggle('is-unavailable', !showPrev);
       prev.disabled = !showPrev;
+      prev.setAttribute('aria-hidden', showPrev ? 'false' : 'true');
     }
     if (next) {
       var showNext = count > 1 && idx < count - 1;
-      next.hidden = !showNext;
+      next.classList.toggle('is-unavailable', !showNext);
       next.disabled = !showNext;
+      next.setAttribute('aria-hidden', showNext ? 'false' : 'true');
     }
   },
 
@@ -348,6 +281,16 @@ const IndexPage = {
       IndexPage.syncViewportHeight();
       IndexPage.updateArrows();
       IndexPage.updateCompHeader();
+      IndexPage.relayoutKnockoutBrackets();
+    });
+  },
+
+  relayoutKnockoutBrackets: function () {
+    if (typeof KnockoutBracket === 'undefined' || !KnockoutBracket.relayout) return;
+    var slide = IndexPage.slides()[IndexPage._carouselIndex];
+    if (!slide) return;
+    slide.querySelectorAll('.home-comp-card__bracket').forEach(function (bracket) {
+      KnockoutBracket.relayout(bracket);
     });
   },
 

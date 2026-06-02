@@ -14,6 +14,8 @@ var AdminFixturesPage = (function () {
     compPlayers: [],
     fixturesLoaded: [],
     currentCompType: 'league',
+    _internalMatchNum: 1,
+    _isEditMode: false,
     el: {},
 
     adminEvt: function () {
@@ -37,7 +39,7 @@ var AdminFixturesPage = (function () {
       this.el.group = document.getElementById('adminFxGroup');
       this.el.week = document.getElementById('adminFxWeek');
       this.el.round = document.getElementById('adminFxRound');
-      this.el.match = document.getElementById('adminFxMatch');
+      this.el.coherenceWarn = document.getElementById('adminFxCoherenceWarn');
       this.el.pa = document.getElementById('adminFxPa');
       this.el.pb = document.getElementById('adminFxPb');
       this.el.deleteBtn = document.getElementById('adminFxDeleteBtn');
@@ -124,44 +126,61 @@ var AdminFixturesPage = (function () {
       else if (ls.options.length) ls.selectedIndex = 0;
     },
 
-    fillRoundSelect: function () {
+    knockoutPlayerCount: function () {
+      return (this.compPlayers || []).filter(function (p) {
+        return p && p.playerId && !KnockoutRounds.isWinnerOfPlayerId(p.playerId);
+      }).length;
+    },
+
+    fillRoundSelect: function (selectedStageId) {
       var rs = this.el.round;
       if (!rs) return;
+      var keep = selectedStageId != null ? String(selectedStageId) : rs.value;
       rs.innerHTML = '';
-      (KnockoutRounds.adminStages() || []).forEach(function (stage) {
-        var o = document.createElement('option');
-        o.value = stage.id;
-        o.textContent = stage.label;
-        rs.appendChild(o);
-      });
-    },
-
-    fillMatchSelect: function (selectedMatch) {
-      var ms = this.el.match;
-      var rs = this.el.round;
-      if (!ms || !rs) return;
-      var stageId = rs.value;
-      ms.innerHTML = '';
-      (KnockoutRounds.matchNumbersForStage(stageId) || []).forEach(function (n) {
-        var o = document.createElement('option');
-        o.value = String(n);
-        o.textContent = String(n);
-        ms.appendChild(o);
-      });
-      if (selectedMatch != null && ms.querySelector('option[value="' + selectedMatch + '"]')) {
-        ms.value = String(selectedMatch);
-      } else if (ms.options.length) {
-        ms.selectedIndex = 0;
-      }
-    },
-
-    setKoStageMatch: function (stageId, matchNum) {
-      if (this.el.round && stageId) {
-        if (this.el.round.querySelector('option[value="' + stageId + '"]')) {
-          this.el.round.value = stageId;
+      (KnockoutRounds.adminStagesForPlayerCount(this.knockoutPlayerCount()) || []).forEach(
+        function (stage) {
+          var o = document.createElement('option');
+          o.value = stage.id;
+          o.textContent = stage.label;
+          rs.appendChild(o);
         }
+      );
+      if (keep && rs.querySelector('option[value="' + keep + '"]')) rs.value = keep;
+      else if (rs.options.length) rs.selectedIndex = 0;
+    },
+
+    usedMatchNumbersForStage: function (stageId, excludeFixtureId) {
+      var used = {};
+      (this.fixturesLoaded || []).forEach(function (f) {
+        if (excludeFixtureId && String(f.fixtureId) === String(excludeFixtureId)) return;
+        if (f['Stage'] !== 'knockout') return;
+        var parsed = KnockoutRounds.parseStageMatch(f['Game Week']);
+        if (parsed.stageId === stageId && parsed.matchNum) {
+          used[parsed.matchNum] = true;
+        }
+      });
+      return used;
+    },
+
+    nextAvailableMatchNum: function (stageId, excludeFixtureId) {
+      var stage = KnockoutRounds.adminStages().find(function (s) {
+        return s.id === stageId;
+      });
+      if (!stage) return 1;
+      var used = this.usedMatchNumbersForStage(stageId, excludeFixtureId);
+      for (var n = 1; n <= stage.matchCount; n++) {
+        if (!used[n]) return n;
       }
-      this.fillMatchSelect(matchNum);
+      return stage.matchCount;
+    },
+
+    assignInternalMatchNum: function (excludeFixtureId) {
+      var stageId = this.el.round && this.el.round.value;
+      if (!stageId) {
+        this._internalMatchNum = 1;
+        return;
+      }
+      this._internalMatchNum = this.nextAvailableMatchNum(stageId, excludeFixtureId);
     },
 
     currentCompId: function () {
@@ -274,7 +293,61 @@ var AdminFixturesPage = (function () {
       ]).then(function (rs) {
         me.fixturesLoaded = rs[0].fixtures || [];
         me.renderList();
+        me.updateCoherenceWarning();
       });
+    },
+
+    fixtureCoherenceIssues: function () {
+      var me = this;
+      if (!me.isKnockoutComp()) return [];
+
+      var roster = {};
+      (me.compPlayers || []).forEach(function (p) {
+        if (p && p.playerId && !KnockoutRounds.isWinnerOfPlayerId(p.playerId)) {
+          roster[p.playerId] = p.playerName || p.playerId;
+        }
+      });
+
+      var appearances = {};
+      (me.fixturesLoaded || []).forEach(function (f) {
+        if (f['Stage'] !== 'knockout') return;
+        ['playerAId', 'playerBId'].forEach(function (key) {
+          var pid = f[key];
+          if (!pid || KnockoutRounds.isWinnerOfPlayerId(pid)) return;
+          appearances[pid] = (appearances[pid] || 0) + 1;
+        });
+      });
+
+      var issues = [];
+      Object.keys(roster).forEach(function (pid) {
+        if (!appearances[pid]) {
+          issues.push(roster[pid] + ' is not in any fixture');
+        }
+      });
+      Object.keys(appearances).forEach(function (pid) {
+        if (appearances[pid] > 1) {
+          issues.push((roster[pid] || pid) + ' appears in more than one fixture');
+        }
+      });
+      return issues;
+    },
+
+    updateCoherenceWarning: function () {
+      var el = this.el.coherenceWarn;
+      if (!el) return;
+      if (!this.isKnockoutComp()) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+      var issues = this.fixtureCoherenceIssues();
+      if (!issues.length) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+      el.hidden = false;
+      el.textContent = 'Fixtures are incoherent: ' + issues.join('; ') + '.';
     },
 
     sortedFixturesForDisplay: function () {
@@ -401,7 +474,6 @@ var AdminFixturesPage = (function () {
       if (this.el.group) this.el.group.required = !isKo;
       if (this.el.week) this.el.week.required = !isKo;
       if (this.el.round) this.el.round.required = isKo;
-      if (this.el.match) this.el.match.required = isKo;
       this.fillGroupSelect(this.el.group && this.el.group.value);
       this.fillPlayerSelects(
         this.el.pa && this.el.pa.value,
@@ -431,7 +503,7 @@ var AdminFixturesPage = (function () {
       var stage = this.el.stage && this.el.stage.value;
       if (stage !== 'knockout') return '';
       var stageId = this.el.round && this.el.round.value;
-      var matchNum = this.el.match && this.el.match.value;
+      var matchNum = this._internalMatchNum;
       if (!stageId || !matchNum) return '';
       return KnockoutRounds.codeForStageMatch(stageId, matchNum);
     },
@@ -518,14 +590,16 @@ var AdminFixturesPage = (function () {
     },
 
     openDialogAdd: function () {
+      this._isEditMode = false;
       if (this.el.fixtureId) this.el.fixtureId.value = '';
       this.syncStageOptions();
       if (this.el.stage) {
         this.el.stage.disabled = false;
       }
       if (this.el.week) this.el.week.value = '';
+      this.fillRoundSelect();
       if (this.el.round) this.el.round.selectedIndex = 0;
-      this.fillMatchSelect(1);
+      this.assignInternalMatchNum();
       if (this.el.deleteBtn) this.el.deleteBtn.hidden = true;
       this.fillGroupSelect();
       this.syncStageFields();
@@ -537,6 +611,7 @@ var AdminFixturesPage = (function () {
     },
 
     openDialogEdit: function (f) {
+      this._isEditMode = true;
       if (this.el.fixtureId) this.el.fixtureId.value = f.fixtureId || '';
       this.syncStageOptions();
       if (this.el.stage) {
@@ -547,10 +622,13 @@ var AdminFixturesPage = (function () {
         var code = String(f['Game Week'] || '').trim();
         var parsed = KnockoutRounds.parseStageMatch(code);
         if (parsed.stageId) {
-          this.setKoStageMatch(parsed.stageId, parsed.matchNum || 1);
-        } else if (this.el.round) {
-          this.el.round.selectedIndex = 0;
-          this.fillMatchSelect(1);
+          this.fillRoundSelect(parsed.stageId);
+          if (this.el.round) this.el.round.value = parsed.stageId;
+          this._internalMatchNum = parsed.matchNum || 1;
+        } else {
+          this.fillRoundSelect();
+          if (this.el.round) this.el.round.selectedIndex = 0;
+          this.assignInternalMatchNum(f.fixtureId);
         }
       } else {
         this.fillGroupSelect(String(f['Group'] || ''));
@@ -617,7 +695,7 @@ var AdminFixturesPage = (function () {
       if (stage === 'knockout') {
         var roundVal = me.currentKoRoundCode();
         if (!roundVal) {
-          me.dialogFlash('Select round and match.', true);
+          me.dialogFlash('Select a round.', true);
           return;
         }
         payload.roundLabel = roundVal;
@@ -699,15 +777,7 @@ var AdminFixturesPage = (function () {
       }
       if (this.el.round) {
         this.el.round.addEventListener('change', function () {
-          me.fillMatchSelect(1);
-          me.fillPlayerSelects(
-            me.el.pa && me.el.pa.value,
-            me.el.pb && me.el.pb.value
-          );
-        });
-      }
-      if (this.el.match) {
-        this.el.match.addEventListener('change', function () {
+          if (!me._isEditMode) me.assignInternalMatchNum();
           me.fillPlayerSelects(
             me.el.pa && me.el.pa.value,
             me.el.pb && me.el.pb.value
