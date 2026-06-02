@@ -515,13 +515,8 @@ var KnockoutBracket = (function () {
   }
 
   function bindScroll(block, viewport, scrollTrack, stages, stageTitleEl) {
-    var stageCount = stages.length;
     var prev = block.querySelector('.ko-bracket-shell__arrow--prev');
     var next = block.querySelector('.ko-bracket-shell__arrow--next');
-    var dots = block.querySelectorAll('.ko-bracket-shell__dot');
-    var hint = block.querySelector('.ko-bracket-shell__hint');
-
-    if (hint) hint.hidden = stageCount <= 1;
 
     function setStageTitle(idx) {
       if (!stageTitleEl || !stages[idx]) return;
@@ -564,10 +559,6 @@ var KnockoutBracket = (function () {
     function updateUi(idx) {
       var count = columns().length;
       setStageTitle(idx);
-      dots.forEach(function (dot, i) {
-        dot.classList.toggle('is-active', i === idx);
-        dot.setAttribute('aria-current', i === idx ? 'true' : 'false');
-      });
       if (prev) {
         var showPrev = count > 1 && idx > 0;
         prev.classList.toggle('is-unavailable', !showPrev);
@@ -593,12 +584,6 @@ var KnockoutBracket = (function () {
       },
       { passive: true }
     );
-
-    dots.forEach(function (dot) {
-      dot.addEventListener('click', function () {
-        scrollToStage(parseInt(dot.getAttribute('data-index'), 10), true);
-      });
-    });
 
     if (prev) {
       prev.addEventListener('click', function () {
@@ -678,25 +663,7 @@ var KnockoutBracket = (function () {
 
     viewport.appendChild(scrollTrack);
 
-    var dotsWrap = document.createElement('div');
-    dotsWrap.className = 'ko-bracket-shell__dots';
-    stages.forEach(function (stage, idx) {
-      var dot = document.createElement('button');
-      dot.type = 'button';
-      dot.className = 'ko-bracket-shell__dot';
-      dot.setAttribute('data-index', String(idx));
-      dot.setAttribute('aria-label', 'Show ' + (stage.label || stage.stageKey));
-      dotsWrap.appendChild(dot);
-    });
-
-    var hint = document.createElement('p');
-    hint.className = 'ko-bracket-shell__hint align-center';
-    hint.textContent =
-      'Use arrows — earlier stages on the left (e.g. play-offs), later on the right (e.g. final)';
-
     shell.appendChild(viewport);
-    shell.appendChild(dotsWrap);
-    shell.appendChild(hint);
     block.appendChild(shell);
     root.appendChild(block);
 

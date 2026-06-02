@@ -112,17 +112,14 @@ const IndexPage = {
 
   renderCarousel: async function () {
     var track = document.getElementById('home-carousel-track');
-    var dots = document.getElementById('home-carousel-dots');
-    if (!track || !dots) return;
+    if (!track) return;
 
     var comps = CurrentCompetition.carouselComps();
     track.innerHTML = '';
-    dots.innerHTML = '';
 
     if (!comps.length) {
       track.innerHTML = '<p class="align-center"><em>No current competitions.</em></p>';
       IndexPage.updateCompHeader();
-      IndexPage.updateCarouselHint(0);
       return;
     }
 
@@ -132,20 +129,11 @@ const IndexPage = {
       })
     );
 
-    cards.forEach(function (card, idx) {
+    cards.forEach(function (card) {
       var slide = document.createElement('div');
       slide.className = 'home-carousel__slide';
       slide.appendChild(card);
       track.appendChild(slide);
-
-      var dot = document.createElement('button');
-      dot.type = 'button';
-      dot.className = 'home-carousel__dot';
-      dot.setAttribute('aria-label', 'Show competition ' + (idx + 1));
-      dot.addEventListener('click', function () {
-        IndexPage.goToSlide(idx, true);
-      });
-      dots.appendChild(dot);
     });
 
     var selectedId = CurrentCompetition.getCompId();
@@ -154,7 +142,6 @@ const IndexPage = {
     });
     IndexPage._carouselIndex = startIdx >= 0 ? startIdx : 0;
     IndexPage.updateCompHeader();
-    IndexPage.updateCarouselHint(comps.length);
     IndexPage.bindCarouselControls();
     IndexPage.updateCarouselPosition(false);
     IndexPage.relayoutKnockoutBrackets();
@@ -170,12 +157,6 @@ const IndexPage = {
     }
     var comp = comps[IndexPage._carouselIndex];
     el.textContent = comp && comp.name ? comp.name : '';
-  },
-
-  updateCarouselHint: function (compCount) {
-    var hint = document.querySelector('.home-carousel__hint');
-    if (!hint) return;
-    hint.hidden = compCount <= 1;
   },
 
   bindCarouselControls: function () {
@@ -259,7 +240,6 @@ const IndexPage = {
   updateCarouselPosition: function (animate) {
     var track = IndexPage.track();
     var viewport = IndexPage.viewport();
-    var dots = document.querySelectorAll('.home-carousel__dot');
     var slides = IndexPage.slides();
     if (!track || !viewport) return;
 
@@ -271,11 +251,6 @@ const IndexPage = {
 
     track.style.transition = animate ? 'transform 0.35s ease' : 'none';
     track.style.transform = 'translateX(-' + IndexPage._carouselIndex * slideWidth + 'px)';
-
-    dots.forEach(function (dot, idx) {
-      dot.classList.toggle('is-active', idx === IndexPage._carouselIndex);
-      dot.setAttribute('aria-current', idx === IndexPage._carouselIndex ? 'true' : 'false');
-    });
 
     window.requestAnimationFrame(function () {
       IndexPage.syncViewportHeight();
