@@ -1,5 +1,4 @@
-// Home Page — swipeable cards for each current competition.
-// League cards show group leaders; knockout cards show the full draw (latest round first).
+// Home Page — swipeable cards for each current competition (league KO stages omitted; shown on parent league card).
 
 const IndexPage = {
   _carouselIndex: 0,
@@ -45,10 +44,6 @@ const IndexPage = {
     card.setAttribute('data-comp-id', comp.compId);
 
     var html = '';
-    html +=
-      '<h2 class="home-comp-card__title align-center"><span style="color:#169179;">' +
-      this.esc(comp.name) +
-      '</span></h2>';
     html += '<p class="align-center home-comp-card__subtitle">League stage &mdash; current leaders</p>';
 
     (groups || []).forEach(function (grp) {
@@ -78,51 +73,15 @@ const IndexPage = {
     card.className = 'home-comp-card home-comp-card--knockout';
     card.setAttribute('data-comp-id', comp.compId);
 
-    var html = '';
-    html +=
-      '<h2 class="home-comp-card__title align-center"><span style="color:#169179;">' +
-      this.esc(comp.name) +
-      '</span></h2>';
+    var bracket = document.createElement('div');
+    bracket.className = 'home-comp-card__bracket ko-bracket-page';
+    card.appendChild(bracket);
 
-    var rounds =
-      typeof KnockoutRounds !== 'undefined'
-        ? KnockoutRounds.groupFixtures(fixtures, true)
-        : [];
-
-    if (!rounds.length) {
-      html += '<p class="align-center home-comp-card__subtitle"><em>No fixtures yet</em></p>';
-      card.innerHTML = html;
-      return card;
+    if (typeof KnockoutBracket !== 'undefined') {
+      KnockoutBracket.render(bracket, fixtures, { stageNav: true });
+    } else {
+      bracket.innerHTML = '<p class="align-center"><em>Bracket unavailable.</em></p>';
     }
-
-    html += '<p class="align-center home-comp-card__subtitle">Knockout draw</p>';
-    html += '<div class="home-comp-card__bracket"></div>';
-    card.innerHTML = html;
-
-    var bracket = card.querySelector('.home-comp-card__bracket');
-    var winnersByCode =
-      typeof KnockoutRounds !== 'undefined' && KnockoutRounds.buildRoundWinnersMap
-        ? KnockoutRounds.buildRoundWinnersMap(fixtures)
-        : {};
-    rounds.forEach(function (round) {
-      var section = document.createElement('section');
-      section.className = 'knockout-round';
-
-      var heading = document.createElement('h3');
-      heading.className = 'knockout-round__heading align-center';
-      heading.textContent = round.label || round.code;
-      section.appendChild(heading);
-
-      var list = document.createElement('div');
-      list.className = 'knockout-round__matches';
-
-      round.matches.forEach(function (match) {
-        KnockoutRenderer.renderRow(list, match, winnersByCode);
-      });
-
-      section.appendChild(list);
-      bracket.appendChild(section);
-    });
 
     return card;
   },
@@ -137,8 +96,16 @@ const IndexPage = {
 
   loadCardData: async function (comp) {
     if (CurrentCompetition.isKnockoutComp(comp)) {
-      var fx = await ApiClient.get({ action: 'getFixtures', comp: comp.compId });
-      return IndexPage.buildKnockoutCard(comp, fx.fixtures || []);
+      var fxKo = await ApiClient.get({ action: 'getFixtures', comp: comp.compId });
+      return IndexPage.buildKnockoutCard(comp, fxKo.fixtures || []);
+    }
+
+    var koComp = CurrentCompetition.findAssociatedKnockout(comp);
+    if (koComp) {
+      var koFx = await ApiClient.get({ action: 'getFixtures', comp: koComp.compId });
+      if ((koFx.fixtures || []).length) {
+        return IndexPage.buildKnockoutCard(comp, koFx.fixtures || []);
+      }
     }
 
     var st = await ApiClient.get({ action: 'getStandings', comp: comp.compId });
@@ -150,12 +117,13 @@ const IndexPage = {
     var dots = document.getElementById('home-carousel-dots');
     if (!track || !dots) return;
 
-    var comps = CurrentCompetition.currentComps();
+    var comps = CurrentCompetition.carouselComps();
     track.innerHTML = '';
     dots.innerHTML = '';
 
     if (!comps.length) {
       track.innerHTML = '<p class="align-center"><em>No current competitions.</em></p>';
+      IndexPage.updateCompHeader();
       IndexPage.updateCarouselHint(0);
       return;
     }
@@ -187,9 +155,22 @@ const IndexPage = {
       return c.compId === selectedId;
     });
     IndexPage._carouselIndex = startIdx >= 0 ? startIdx : 0;
+    IndexPage.updateCompHeader();
     IndexPage.updateCarouselHint(comps.length);
     IndexPage.bindCarouselControls();
     IndexPage.updateCarouselPosition(false);
+  },
+
+  updateCompHeader: function () {
+    var el = document.getElementById('home-carousel-comp-title');
+    var comps = CurrentCompetition.carouselComps();
+    if (!el) return;
+    if (!comps.length) {
+      el.textContent = '';
+      return;
+    }
+    var comp = comps[IndexPage._carouselIndex];
+    el.textContent = comp && comp.name ? comp.name : '';
   },
 
   updateCarouselHint: function (compCount) {
@@ -298,7 +279,7 @@ const IndexPage = {
   },
 
   updateArrows: function () {
-    var comps = CurrentCompetition.currentComps();
+    var comps = CurrentCompetition.carouselComps();
     var prev = document.getElementById('home-carousel-prev');
     var next = document.getElementById('home-carousel-next');
     var count = comps.length;
@@ -322,7 +303,7 @@ const IndexPage = {
 
   goToSlide: function (index, syncCompetition) {
     var track = IndexPage.track();
-    var comps = CurrentCompetition.currentComps();
+    var comps = CurrentCompetition.carouselComps();
     if (!track || !comps.length) return;
 
     var max = comps.length - 1;
@@ -366,6 +347,7 @@ const IndexPage = {
     window.requestAnimationFrame(function () {
       IndexPage.syncViewportHeight();
       IndexPage.updateArrows();
+      IndexPage.updateCompHeader();
     });
   },
 
@@ -378,7 +360,7 @@ const IndexPage = {
     });
 
     window.addEventListener(CurrentCompetition.EVENT_NAME, function (ev) {
-      var comps = CurrentCompetition.currentComps();
+      var comps = CurrentCompetition.carouselComps();
       var idx = comps.findIndex(function (c) {
         return c.compId === (ev.detail && ev.detail.compId);
       });

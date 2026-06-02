@@ -1,9 +1,11 @@
-// Shared "current competition" context for public pages.
-// Several comps can be isCurrent (e.g. league + knockout).
-// The selected comp drives the home carousel and optional ?comp= on reads.
+// Shared competition context for public pages.
+// isCurrent (admin checkbox): any number of comps may be current.
+// Home carousel lists current comps except league knockout stages (shown on the parent league card).
+// Now showing: the single comp selected on index (carousel / session / ?comp=); drives nav and API reads.
 
 var CurrentCompetition = (function () {
   var STORAGE_KEY = 'ierneCurrentCompId';
+  var STORAGE_TYPE_KEY = 'ierneCurrentCompType';
   var EVENT_NAME = 'ierne-current-competition-changed';
 
   var _comps = [];
@@ -29,6 +31,45 @@ var CurrentCompetition = (function () {
     return (_comps || []).filter(function (c) {
       return c && c.isCurrent;
     });
+  }
+
+  function isLeagueKnockoutStage(comp) {
+    return !!(
+      comp &&
+      isKnockoutComp(comp) &&
+      String(comp.parentCompId || '').trim()
+    );
+  }
+
+  function carouselComps() {
+    return currentComps().filter(function (c) {
+      return !isLeagueKnockoutStage(c);
+    });
+  }
+
+  function normalizeNowShowingCompId(compId) {
+    if (!compId) return null;
+    var comp = findComp(compId);
+    if (!comp || !comp.isCurrent) return null;
+    if (!isLeagueKnockoutStage(comp)) return comp.compId;
+    var parent = findComp(comp.parentCompId);
+    if (parent && parent.isCurrent) return parent.compId;
+    return null;
+  }
+
+  function findAssociatedKnockout(leagueComp) {
+    if (!leagueComp || isKnockoutComp(leagueComp)) return null;
+    var parentId = String(leagueComp.compId);
+    return (
+      (_comps || []).find(function (c) {
+        return (
+          c &&
+          c.isCurrent &&
+          isKnockoutComp(c) &&
+          String(c.parentCompId || '') === parentId
+        );
+      }) || null
+    );
   }
 
   function findComp(compId) {
@@ -65,8 +106,28 @@ var CurrentCompetition = (function () {
     }
   }
 
+  function writeStoredCompType(comp) {
+    try {
+      if (comp) {
+        sessionStorage.setItem(
+          STORAGE_TYPE_KEY,
+          isKnockoutComp(comp) ? 'knockout' : 'league'
+        );
+      } else {
+        sessionStorage.removeItem(STORAGE_TYPE_KEY);
+      }
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+
+  function writeStoredCompMeta(comp) {
+    writeStoredCompId(comp ? comp.compId : null);
+    writeStoredCompType(comp);
+  }
+
   function defaultCompId() {
-    var active = currentComps();
+    var active = carouselComps();
     if (!active.length) return null;
     var league = active.find(function (c) {
       return !isKnockoutComp(c);
@@ -75,14 +136,13 @@ var CurrentCompetition = (function () {
   }
 
   function pickInitialCompId() {
-    var active = currentComps();
-    if (!active.length) return null;
+    if (!carouselComps().length && !currentComps().length) return null;
 
-    var urlId = readUrlCompId();
-    if (urlId && findComp(urlId) && findComp(urlId).isCurrent) return urlId;
+    var urlId = normalizeNowShowingCompId(readUrlCompId());
+    if (urlId) return urlId;
 
-    var stored = readStoredCompId();
-    if (stored && findComp(stored) && findComp(stored).isCurrent) return stored;
+    var stored = normalizeNowShowingCompId(readStoredCompId());
+    if (stored) return stored;
 
     return defaultCompId();
   }
@@ -122,7 +182,7 @@ var CurrentCompetition = (function () {
           if (!_current && _comps.length) {
             _current = findComp(defaultCompId());
           }
-          writeStoredCompId(_current ? _current.compId : null);
+          writeStoredCompMeta(_current);
           _ready = true;
           dispatchChange();
           return _current;
@@ -145,13 +205,24 @@ var CurrentCompetition = (function () {
 
     currentComps: currentComps,
 
+    carouselComps: carouselComps,
+
+    isLeagueKnockoutStage: isLeagueKnockoutStage,
+
+    /** Now showing comp (home carousel selection). */
     get: function () {
+      return _current;
+    },
+
+    getNowShowing: function () {
       return _current;
     },
 
     getCompId: function () {
       return _current ? _current.compId : null;
     },
+
+    findAssociatedKnockout: findAssociatedKnockout,
 
     isKnockoutComp: isKnockoutComp,
 
@@ -165,11 +236,12 @@ var CurrentCompetition = (function () {
 
     setCompId: function (compId, options) {
       var opts = options || {};
-      var next = findComp(compId);
-      if (!next || !next.isCurrent) return false;
+      var id = normalizeNowShowingCompId(compId) || compId;
+      var next = findComp(id);
+      if (!next || !next.isCurrent || isLeagueKnockoutStage(next)) return false;
       if (_current && _current.compId === next.compId) return true;
       _current = next;
-      writeStoredCompId(next.compId);
+      writeStoredCompMeta(next);
       if (opts.syncUrl !== false) syncUrl(next.compId);
       dispatchChange();
       return true;

@@ -234,10 +234,6 @@ const KNOCKOUT_GROUP_ID = "ko";
 const WINNER_OF_PREFIX = "wo:";
 
 const KNOCKOUT_ROUND_LABELS: Record<string, string> = {
-  PO1: "Play-off 1",
-  PO2: "Play-off 2",
-  PO3: "Play-off 3",
-  PO4: "Play-off 4",
   QF1: "Quarter-final 1",
   QF2: "Quarter-final 2",
   QF3: "Quarter-final 3",
@@ -245,17 +241,27 @@ const KNOCKOUT_ROUND_LABELS: Record<string, string> = {
   SF1: "Semi-final 1",
   SF2: "Semi-final 2",
   F: "Final",
-  PQ: "Plate Quarters",
-  PS: "Plate Semis",
-  PF: "Plate Final",
-  CS: "Championship Semis",
-  CF: "Championship Final",
+  "F-P": "Plate Final",
+  "F-C": "Championship Final",
 };
 
 function knockoutRoundLabel(code: string): string {
   const c = code.trim();
   if (!c) return "";
   if (KNOCKOUT_ROUND_LABELS[c]) return KNOCKOUT_ROUND_LABELS[c];
+
+  const l32 = c.match(/^L32-(\d+)$/i);
+  if (l32) return `Last 32 — match ${l32[1]}`;
+
+  const l16 = c.match(/^L16-(\d+)$/i);
+  if (l16) return `Last 16 — match ${l16[1]}`;
+
+  const qf = c.match(/^QF(\d+)$/i);
+  if (qf) return `Quarter-final ${qf[1]}`;
+
+  const sf = c.match(/^SF(\d+)$/i);
+  if (sf) return `Semi-final ${sf[1]}`;
+
   const koLast = c.match(/^KO Last (\d+)$/i);
   if (koLast) {
     const n = parseInt(koLast[1], 10);
@@ -263,6 +269,7 @@ function knockoutRoundLabel(code: string): string {
     if (n === 4) return "Semi-finals";
     if (n === 8) return "Quarter-finals";
     if (n === 16) return "Last 16";
+    if (n === 32) return "Last 32";
     return `Last ${n}`;
   }
   if (/^KO Pre-/i.test(c)) return "Preliminary";
@@ -1127,14 +1134,6 @@ async function handleUpsertCompetition(data: Record<string, unknown>): Promise<R
 
   const sql = db();
   await sql.begin(async (tx) => {
-    if (isCurrent) {
-      await tx`
-        update ierne_snooker.competitions
-        set is_current = false, updated_at = now()
-        where competition_type = ${competitionType}
-          and competition_id <> ${compId}
-      `;
-    }
     await tx`
       insert into ierne_snooker.competitions (
         competition_id, name, starts_on, ends_on, is_current,

@@ -4,12 +4,12 @@
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Ierne Snooker League - ierne-snooker</title>
+    <title>Ierne Snooker - ierne-snooker</title>
     <meta
       name="description"
       content="Winter League 2025 completed Congratulatons to Champion... and plate winner.... 🏆 Final Plate Competition 🟦 Quarter Finals 🟦 Semi Finals 🟦 Final"
     />
-    <meta property="og:title" content="Ierne Snooker League" />
+    <meta property="og:title" content="Ierne Snooker" />
     <meta property="og:image" content="assets/images/snooker-WM-.jpg" />
     <meta property="og:image:width" content="1456" />
     <meta property="og:image:height" content="816" />
@@ -24,7 +24,7 @@
       {
         "@context": "https://schema.org",
         "@type": "WebSite",
-        "name": "Ierne Snooker League",
+        "name": "Ierne Snooker",
         "description": "Winter League 2025 completed Congratulatons to Champion... and plate winner.... 🏆 Final Plate Competition 🟦 Quarter Finals 🟦 Semi Finals 🟦 Final",
         "image": {
           "@type": "ImageObject",
@@ -34,7 +34,7 @@
         },
         "publisher": {
           "@type": "Organization",
-          "name": "Ierne Snooker League",
+          "name": "Ierne Snooker",
           "logo": {
             "@type": "ImageObject",
             "url": "assets/images/Ierne-logo-768x920.png",
@@ -62,7 +62,7 @@
     <script src="assets/js/utils/image-loader.js"></script>
     <!-- Components -->
     <script src="assets/js/utils/knockout-rounds.js"></script>
-    <script src="assets/js/components/knockout-renderer.js"></script>
+    <script src="assets/js/utils/knockout-bracket.js"></script>
     <script src="assets/js/components/league-standings.js"></script>
     <!-- Page modules -->
     <script src="assets/js/pages/index.js"></script>
@@ -138,7 +138,7 @@
         <div class="hero">
           <header class="hero__content hero__content--centered">
             <div class="wrapper">
-              <h1>Ierne Snooker League</h1>
+              <h1>Ierne Snooker</h1>
             </div>
           </header>
           <figure class="hero__image">
@@ -155,17 +155,20 @@
         </div>
         <div class="entry-wrapper content__entry">
           <div id="home-carousel" class="home-carousel" aria-label="Current competitions">
-            <button type="button" class="home-carousel__arrow home-carousel__arrow--prev" id="home-carousel-prev" aria-label="Previous competition" hidden>
-              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6L8 12L14 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
+            <div class="home-carousel__comp-header">
+              <button type="button" class="home-carousel__arrow home-carousel__arrow--prev" id="home-carousel-prev" aria-label="Previous competition" hidden>
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6L8 12L14 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <h2 id="home-carousel-comp-title" class="home-carousel__comp-title align-center">Loading…</h2>
+              <button type="button" class="home-carousel__arrow home-carousel__arrow--next" id="home-carousel-next" aria-label="Next competition" hidden>
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L16 12L10 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
             <div class="home-carousel__viewport" id="home-carousel-viewport">
               <div id="home-carousel-track" class="home-carousel__track">
                 <p class="align-center"><em>Loading competitions…</em></p>
               </div>
             </div>
-            <button type="button" class="home-carousel__arrow home-carousel__arrow--next" id="home-carousel-next" aria-label="Next competition" hidden>
-              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L16 12L10 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
             <div id="home-carousel-dots" class="home-carousel__dots" aria-hidden="true"></div>
             <p class="home-carousel__hint align-center" hidden>Swipe or use arrows to change competition</p>
           </div>

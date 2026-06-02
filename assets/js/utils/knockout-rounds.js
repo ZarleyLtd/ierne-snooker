@@ -3,18 +3,19 @@
 var KnockoutRounds = (function () {
   var WINNER_OF_PREFIX = 'wo:';
 
-  var ROUNDS = [
+  var ADMIN_STAGES = [
+    { id: 'L32', label: 'Last 32', matchCount: 16, sortKey: 1 },
+    { id: 'L16', label: 'Last 16', matchCount: 8, sortKey: 2 },
+    { id: 'QF', label: 'Quarter Final', matchCount: 4, sortKey: 3 },
+    { id: 'SF', label: 'Semi Final', matchCount: 2, sortKey: 4 },
+    { id: 'F', label: 'Final', matchCount: 1, sortKey: 5 },
+  ];
+
+  var LEGACY_ROUNDS = [
     { code: 'PO1', label: 'Play-off 1', sortKey: 1 },
     { code: 'PO2', label: 'Play-off 2', sortKey: 2 },
     { code: 'PO3', label: 'Play-off 3', sortKey: 3 },
     { code: 'PO4', label: 'Play-off 4', sortKey: 4 },
-    { code: 'QF1', label: 'Quarter-final 1', sortKey: 5 },
-    { code: 'QF2', label: 'Quarter-final 2', sortKey: 6 },
-    { code: 'QF3', label: 'Quarter-final 3', sortKey: 7 },
-    { code: 'QF4', label: 'Quarter-final 4', sortKey: 8 },
-    { code: 'SF1', label: 'Semi-final 1', sortKey: 9 },
-    { code: 'SF2', label: 'Semi-final 2', sortKey: 10 },
-    { code: 'F', label: 'Final', sortKey: 11 },
     { code: 'PQ', label: 'Plate Quarters', sortKey: 20 },
     { code: 'PS', label: 'Plate Semis', sortKey: 21 },
     { code: 'PF', label: 'Plate Final', sortKey: 22 },
@@ -25,9 +26,104 @@ var KnockoutRounds = (function () {
     { code: 'KO Last 8', label: 'Quarter-finals', sortKey: 103 },
     { code: 'KO Last 4', label: 'Semi-finals', sortKey: 104 },
     { code: 'KO Last 2', label: 'Final', sortKey: 105 },
+    { code: 'F-P', label: 'Plate Final', sortKey: 15 },
+    { code: 'F-C', label: 'Championship Final', sortKey: 16 },
   ];
 
+  function codeForStageMatchInternal(stageId, matchNum) {
+    var stage = String(stageId || '').trim();
+    var n = parseInt(matchNum, 10);
+    if (!stage || !Number.isFinite(n) || n < 1) return '';
+    if (stage === 'F') return 'F';
+    if (stage === 'SF') return 'SF' + n;
+    if (stage === 'QF') return 'QF' + n;
+    if (stage === 'L16') return 'L16-' + n;
+    if (stage === 'L32') return 'L32-' + n;
+    return '';
+  }
+
+  function labelForCode(code) {
+    var c = String(code == null ? '' : code).trim();
+    if (!c) return '';
+    if (byCode[c]) return byCode[c].label;
+
+    var l32 = c.match(/^L32-(\d+)$/i);
+    if (l32) return 'Last 32 — match ' + l32[1];
+
+    var l16 = c.match(/^L16-(\d+)$/i);
+    if (l16) return 'Last 16 — match ' + l16[1];
+
+    var prefixed = c.match(/^(QF|SF)(\d+)$/i);
+    if (prefixed) {
+      var stageName = prefixed[1].toUpperCase() === 'QF' ? 'Quarter-final' : 'Semi-final';
+      return stageName + ' ' + prefixed[2];
+    }
+    if (c === 'F') return 'Final';
+
+    var koLast = c.match(/^KO Last (\d+)$/i);
+    if (koLast) {
+      var n = parseInt(koLast[1], 10);
+      if (n === 2) return 'Final';
+      if (n === 4) return 'Semi-finals';
+      if (n === 8) return 'Quarter-finals';
+      if (n === 16) return 'Last 16';
+      return 'Last ' + n;
+    }
+    if (/^KO Pre-/i.test(c)) return 'Preliminary';
+    return c;
+  }
+
+  function sortKeyForCode(code) {
+    var c = String(code == null ? '' : code).trim();
+    if (byCode[c]) return byCode[c].sortKey;
+
+    var l32 = c.match(/^L32-(\d+)$/i);
+    if (l32) return 100 + parseInt(l32[1], 10);
+
+    var l16 = c.match(/^L16-(\d+)$/i);
+    if (l16) return 200 + parseInt(l16[1], 10);
+
+    var prefixed = c.match(/^(QF|SF)(\d+)$/i);
+    if (prefixed) {
+      var base = prefixed[1].toUpperCase() === 'QF' ? 300 : 400;
+      return base + parseInt(prefixed[2], 10);
+    }
+    if (c === 'F') return 501;
+
+    var koLast = c.match(/^KO Last (\d+)$/i);
+    if (koLast) {
+      var n = parseInt(koLast[1], 10);
+      if (n === 2) return 105;
+      if (n === 4) return 104;
+      if (n === 8) return 103;
+      if (n === 16) return 102;
+      return 100 + Math.log2(n);
+    }
+    if (/^KO Pre-/i.test(c)) return 101;
+    return 999 + c.charCodeAt(0);
+  }
+
   var byCode = {};
+
+  function buildStandardRounds() {
+    var rounds = [];
+    ADMIN_STAGES.forEach(function (stage) {
+      for (var n = 1; n <= stage.matchCount; n++) {
+        var code = codeForStageMatchInternal(stage.id, n);
+        rounds.push({
+          code: code,
+          label: labelForCode(code),
+          sortKey: stage.sortKey * 100 + n,
+          stageId: stage.id,
+          matchNum: n,
+        });
+      }
+    });
+    return rounds;
+  }
+
+  var ROUNDS = buildStandardRounds().concat(LEGACY_ROUNDS);
+
   ROUNDS.forEach(function (r) {
     byCode[r.code] = r;
   });
@@ -49,41 +145,76 @@ var KnockoutRounds = (function () {
   }
 
   return {
+    adminStages: function () {
+      return ADMIN_STAGES.slice();
+    },
+
+    matchNumbersForStage: function (stageId) {
+      var stage = ADMIN_STAGES.find(function (s) {
+        return s.id === stageId;
+      });
+      if (!stage) return [];
+      var nums = [];
+      for (var n = 1; n <= stage.matchCount; n++) nums.push(n);
+      return nums;
+    },
+
+    codeForStageMatch: function (stageId, matchNum) {
+      return codeForStageMatchInternal(stageId, matchNum);
+    },
+
+    parseStageMatch: function (code) {
+      var c = String(code == null ? '' : code).trim();
+      if (!c) return { stageId: '', matchNum: 0 };
+
+      if (c === 'F' || c === 'F-P' || c === 'F-C' || c === 'KO Last 2') {
+        return { stageId: 'F', matchNum: 1 };
+      }
+
+      var l32 = c.match(/^L32-(\d+)$/i);
+      if (l32) return { stageId: 'L32', matchNum: parseInt(l32[1], 10) };
+
+      var l16 = c.match(/^L16-(\d+)$/i);
+      if (l16) return { stageId: 'L16', matchNum: parseInt(l16[1], 10) };
+
+      var qf = c.match(/^QF(\d+)$/i);
+      if (qf) return { stageId: 'QF', matchNum: parseInt(qf[1], 10) };
+
+      var sf = c.match(/^SF(\d+)$/i);
+      if (sf) return { stageId: 'SF', matchNum: parseInt(sf[1], 10) };
+
+      if (c === 'KO Last 8') return { stageId: 'QF', matchNum: 1 };
+      if (c === 'KO Last 4') return { stageId: 'SF', matchNum: 1 };
+      if (c === 'KO Last 16') return { stageId: 'L16', matchNum: 1 };
+
+      var koLast = c.match(/^KO Last (\d+)$/i);
+      if (koLast) {
+        var n = parseInt(koLast[1], 10);
+        if (n === 16) return { stageId: 'L16', matchNum: 1 };
+        if (n === 8) return { stageId: 'QF', matchNum: 1 };
+        if (n === 4) return { stageId: 'SF', matchNum: 1 };
+        if (n === 2) return { stageId: 'F', matchNum: 1 };
+      }
+
+      if (/^PO(\d+)$/i.test(c)) {
+        var poNum = parseInt(c.match(/^PO(\d+)$/i)[1], 10);
+        return { stageId: 'L32', matchNum: poNum };
+      }
+      if (/^KO Pre-/i.test(c)) return { stageId: 'L32', matchNum: 1 };
+
+      return { stageId: '', matchNum: 0 };
+    },
+
     all: function () {
-      return ROUNDS.slice();
+      return buildStandardRounds().slice();
     },
 
     labelFor: function (code) {
-      var c = String(code == null ? '' : code).trim();
-      if (!c) return '';
-      if (byCode[c]) return byCode[c].label;
-      var koLast = c.match(/^KO Last (\d+)$/i);
-      if (koLast) {
-        var n = parseInt(koLast[1], 10);
-        if (n === 2) return 'Final';
-        if (n === 4) return 'Semi-finals';
-        if (n === 8) return 'Quarter-finals';
-        if (n === 16) return 'Last 16';
-        return 'Last ' + n;
-      }
-      if (/^KO Pre-/i.test(c)) return 'Preliminary';
-      return c;
+      return labelForCode(code);
     },
 
     sortKeyFor: function (code) {
-      var c = String(code == null ? '' : code).trim();
-      if (byCode[c]) return byCode[c].sortKey;
-      var koLast = c.match(/^KO Last (\d+)$/i);
-      if (koLast) {
-        var n = parseInt(koLast[1], 10);
-        if (n === 2) return 105;
-        if (n === 4) return 104;
-        if (n === 8) return 103;
-        if (n === 16) return 102;
-        return 100 + Math.log2(n);
-      }
-      if (/^KO Pre-/i.test(c)) return 101;
-      return 999 + c.charCodeAt(0);
+      return sortKeyForCode(code);
     },
 
     sortOrderFor: function (code) {
@@ -113,12 +244,6 @@ var KnockoutRounds = (function () {
       return base ? base + ' Winner' : 'Winner';
     },
 
-    /**
-     * Display name for a fixture slot, substituting the real winner when the feeder round has a result.
-     * @param {Object} match
-     * @param {'a'|'b'} slot
-     * @param {Object.<string,string>} [winnersByCode]
-     */
     resolvedPlayerName: function (match, slot, winnersByCode) {
       winnersByCode = winnersByCode || {};
       var isA = slot !== 'b';
@@ -131,15 +256,11 @@ var KnockoutRounds = (function () {
       return fallback;
     },
 
-    /**
-     * Map round code → winner name for completed knockout fixtures (earliest rounds first).
-     */
     buildRoundWinnersMap: function (fixtures) {
       var self = this;
       var winners = {};
       var list = (fixtures || []).slice().sort(function (a, b) {
-        var diff =
-          self.sortKeyFor(a['Game Week']) - self.sortKeyFor(b['Game Week']);
+        var diff = self.sortKeyFor(a['Game Week']) - self.sortKeyFor(b['Game Week']);
         if (diff !== 0) return diff;
         return (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0);
       });
@@ -158,33 +279,41 @@ var KnockoutRounds = (function () {
       return winners;
     },
 
-    /**
-     * Stage key for bracket columns (SF1 + SF2 → same stage).
-     */
     stageKeyFor: function (code) {
       var c = String(code == null ? '' : code).trim();
       if (!c) return '';
+
+      if (/^L32-/i.test(c)) return 'L32';
+      if (/^L16-/i.test(c)) return 'L16';
+
       var prefixed = c.match(/^(PO|QF|SF)(\d+)$/i);
       if (prefixed) return prefixed[1].toUpperCase();
+
+      if (c === 'F' || c === 'F-P' || c === 'F-C') return 'F';
+
       var koLast = c.match(/^KO Last (\d+)$/i);
       if (koLast) {
         var n = parseInt(koLast[1], 10);
-        if (n === 2) return 'KO-FINAL';
-        if (n === 4) return 'KO-SEMI';
-        if (n === 8) return 'KO-QF';
-        if (n === 16) return 'KO-L16';
+        if (n === 2) return 'F';
+        if (n === 4) return 'SF';
+        if (n === 8) return 'QF';
+        if (n === 16) return 'L16';
+        if (n === 32) return 'L32';
         return 'KO-LAST-' + n;
       }
-      if (/^KO Pre-/i.test(c)) return 'KO-PRELIM';
+      if (/^KO Pre-/i.test(c)) return 'L32';
       return c;
     },
 
     stageLabelFor: function (code) {
       var key = this.stageKeyFor(code);
       var labels = {
+        L32: 'Last 32',
+        L16: 'Last 16',
         PO: 'Play-offs',
         QF: 'Quarter-finals',
         SF: 'Semi-finals',
+        F: 'Final',
         'KO-PRELIM': 'Preliminary',
         'KO-L16': 'Last 16',
         'KO-QF': 'Quarter-finals',
@@ -198,9 +327,12 @@ var KnockoutRounds = (function () {
     stageSortKeyFor: function (code) {
       var key = this.stageKeyFor(code);
       var keys = {
-        PO: 5,
-        QF: 9,
-        SF: 11,
+        L32: 1,
+        L16: 2,
+        PO: 3,
+        QF: 4,
+        SF: 5,
+        F: 6,
         'KO-PRELIM': 101,
         'KO-L16': 102,
         'KO-QF': 103,
@@ -211,9 +343,6 @@ var KnockoutRounds = (function () {
       return this.sortKeyFor(code);
     },
 
-    /**
-     * Group fixtures by knockout stage (one column per stage, all matches listed vertically).
-     */
     groupFixturesByStage: function (fixtures, descending) {
       var stages = {};
       (fixtures || []).forEach(function (f) {
@@ -253,12 +382,6 @@ var KnockoutRounds = (function () {
       return list;
     },
 
-    /**
-     * Group fixtures by round code.
-     * @param {Array} fixtures
-     * @param {boolean} descending - true = latest round first (Final before QFs)
-     * @returns {Array<{code:string,label:string,matches:Array}>}
-     */
     groupFixtures: function (fixtures, descending) {
       var grouped = {};
       (fixtures || []).forEach(function (f) {
@@ -278,6 +401,23 @@ var KnockoutRounds = (function () {
           matches: grouped[code],
         };
       });
+    },
+
+    /**
+     * Group knockout fixtures by stage for list UIs (fixtures, results, admin).
+     * @returns {{ grouped: Object.<string,Array>, orderedKeys: string[], labels: Object.<string,string> }}
+     */
+    groupForList: function (fixtures) {
+      var stages = this.groupFixturesByStage(fixtures, false);
+      var grouped = {};
+      var orderedKeys = [];
+      var labels = {};
+      stages.forEach(function (stage) {
+        orderedKeys.push(stage.stageKey);
+        grouped[stage.stageKey] = stage.matches;
+        labels[stage.stageKey] = stage.label;
+      });
+      return { grouped: grouped, orderedKeys: orderedKeys, labels: labels };
     },
   };
 })();

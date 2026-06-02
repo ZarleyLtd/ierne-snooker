@@ -241,18 +241,11 @@ var KnockoutBracket = (function () {
     return 'M0,' + yL + ' H12 V' + yR + ' H32';
   }
 
-  function renderMatchCard(match, sublabel, winnersByCode) {
+  function renderMatchCard(match, winnersByCode) {
     var card = document.createElement('article');
     card.className = 'ko-bracket-match';
     var code = String(match['Game Week'] || '').trim();
     if (code) card.setAttribute('data-round-code', code);
-
-    if (sublabel) {
-      var tag = document.createElement('div');
-      tag.className = 'ko-bracket-match__tag';
-      tag.textContent = sublabel;
-      card.appendChild(tag);
-    }
 
     var sc = parseScores(match);
     [
@@ -287,12 +280,6 @@ var KnockoutBracket = (function () {
     return card;
   }
 
-  function matchSublabel(match, stage) {
-    if (!stage || (stage.codes || []).length <= 1) return '';
-    var code = String(match['Game Week'] || '').trim();
-    return typeof KnockoutRounds !== 'undefined' ? KnockoutRounds.labelFor(code) : code;
-  }
-
   function renderStageColumn(stage, layoutSlots, winnersByCode) {
     var col = document.createElement('div');
     col.className = 'ko-bracket-stage';
@@ -306,7 +293,7 @@ var KnockoutBracket = (function () {
     list.className = 'ko-bracket-stage__list';
 
     stage.matches.forEach(function (match) {
-      list.appendChild(renderMatchCard(match, matchSublabel(match, stage), winnersByCode));
+      list.appendChild(renderMatchCard(match, winnersByCode));
     });
 
     var arena = document.createElement('div');
@@ -437,13 +424,19 @@ var KnockoutBracket = (function () {
     });
   }
 
-  function bindScroll(shell, viewport, scrollTrack, stageCount) {
-    var prev = shell.querySelector('.ko-bracket-shell__arrow--prev');
-    var next = shell.querySelector('.ko-bracket-shell__arrow--next');
-    var dots = shell.querySelectorAll('.ko-bracket-shell__dot');
-    var hint = shell.querySelector('.ko-bracket-shell__hint');
+  function bindScroll(block, viewport, scrollTrack, stages, stageTitleEl) {
+    var stageCount = stages.length;
+    var prev = block.querySelector('.ko-bracket-shell__arrow--prev');
+    var next = block.querySelector('.ko-bracket-shell__arrow--next');
+    var dots = block.querySelectorAll('.ko-bracket-shell__dot');
+    var hint = block.querySelector('.ko-bracket-shell__hint');
 
     if (hint) hint.hidden = stageCount <= 1;
+
+    function setStageTitle(idx) {
+      if (!stageTitleEl || !stages[idx]) return;
+      stageTitleEl.textContent = stages[idx].label || stages[idx].stageKey || '';
+    }
 
     function columns() {
       return scrollTrack.querySelectorAll('.ko-bracket-stage');
@@ -480,6 +473,7 @@ var KnockoutBracket = (function () {
 
     function updateUi(idx) {
       var count = columns().length;
+      setStageTitle(idx);
       dots.forEach(function (dot, i) {
         dot.classList.toggle('is-active', i === idx);
         dot.setAttribute('aria-current', i === idx ? 'true' : 'false');
@@ -528,19 +522,20 @@ var KnockoutBracket = (function () {
     scrollToStage(0, false);
   }
 
-  function renderTrack(track, root, winnersByCode) {
+  function renderTrack(track, root, winnersByCode, trackOptions) {
+    trackOptions = trackOptions || {};
     var block = document.createElement('section');
     block.className = 'ko-bracket-track-block';
-
-    if (track.label) {
-      var title = document.createElement('h2');
-      title.className = 'ko-bracket-track-block__title align-center';
-      title.textContent = track.label;
-      block.appendChild(title);
+    if (trackOptions.stageNav !== false) {
+      block.classList.add('ko-bracket-track-block--stage-nav');
     }
 
-    var shell = document.createElement('div');
-    shell.className = 'ko-bracket-shell';
+    if (trackOptions.trackLabel) {
+      var trackTitle = document.createElement('h3');
+      trackTitle.className = 'ko-bracket-track-block__title align-center';
+      trackTitle.textContent = trackOptions.trackLabel;
+      block.appendChild(trackTitle);
+    }
 
     var prevBtn = document.createElement('button');
     prevBtn.type = 'button';
@@ -556,15 +551,31 @@ var KnockoutBracket = (function () {
     nextBtn.innerHTML =
       '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L16 12L10 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+    var layoutSlots = maxMatchesInTrack(track.stages);
+    var stages = track.stages;
+    var stageTitleEl = null;
+
+    if (trackOptions.stageNav !== false && stages.length) {
+      var headerRow = document.createElement('div');
+      headerRow.className = 'ko-bracket-stage-nav';
+      stageTitleEl = document.createElement('div');
+      stageTitleEl.className = 'ko-bracket-stage-nav__title align-center';
+      stageTitleEl.textContent = stages[0].label || stages[0].stageKey || '';
+      headerRow.appendChild(prevBtn);
+      headerRow.appendChild(stageTitleEl);
+      headerRow.appendChild(nextBtn);
+      block.appendChild(headerRow);
+    }
+
+    var shell = document.createElement('div');
+    shell.className = 'ko-bracket-shell';
+
     var viewport = document.createElement('div');
     viewport.className = 'ko-bracket-shell__viewport';
     viewport.setAttribute('tabindex', '0');
 
     var scrollTrack = document.createElement('div');
     scrollTrack.className = 'ko-bracket-shell__track';
-
-    var layoutSlots = maxMatchesInTrack(track.stages);
-    var stages = track.stages;
 
     stages.forEach(function (stage, idx) {
       if (idx > 0) {
@@ -591,9 +602,7 @@ var KnockoutBracket = (function () {
     hint.textContent =
       'Swipe or use arrows — earlier stages on the left (e.g. play-offs), later on the right (e.g. final)';
 
-    shell.appendChild(prevBtn);
     shell.appendChild(viewport);
-    shell.appendChild(nextBtn);
     shell.appendChild(dotsWrap);
     shell.appendChild(hint);
     block.appendChild(shell);
@@ -617,13 +626,14 @@ var KnockoutBracket = (function () {
       });
     }
 
-    bindScroll(shell, viewport, scrollTrack, stages.length);
+    bindScroll(block, viewport, scrollTrack, stages, stageTitleEl);
   }
 
   return {
-    render: function (root, fixtures) {
+    render: function (root, fixtures, options) {
       if (!root) return;
       root.innerHTML = '';
+      options = options || {};
 
       var stages =
         typeof KnockoutRounds !== 'undefined' && KnockoutRounds.groupFixturesByStage
@@ -640,8 +650,13 @@ var KnockoutBracket = (function () {
           ? KnockoutRounds.buildRoundWinnersMap(fixtures)
           : {};
 
+      var stageNav = options.stageNav !== false;
+
       buildTracks(stages).forEach(function (track) {
-        renderTrack(track, root, winnersByCode);
+        renderTrack(track, root, winnersByCode, {
+          stageNav: stageNav,
+          trackLabel: track.label || '',
+        });
       });
     },
   };

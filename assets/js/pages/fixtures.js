@@ -85,6 +85,9 @@ var FixturesPage = {
     });
 
     if (typeof CurrentCompetition !== 'undefined') {
+      if (typeof NavCompetition !== 'undefined') {
+        NavCompetition.syncLeagueFiltersFromSession();
+      }
       window.addEventListener(CurrentCompetition.EVENT_NAME, function () {
         self.render().catch(function (e) {
           console.error(e);
@@ -336,6 +339,9 @@ var FixturesPage = {
 
       var isKnockout =
         typeof CurrentCompetition !== 'undefined' && CurrentCompetition.isKnockout();
+      if (typeof NavCompetition !== 'undefined') {
+        NavCompetition.syncLeagueFilters(isKnockout);
+      }
       var group = this.selectedLeague();
 
       var upcoming = data.filter(function (r) {
@@ -355,17 +361,21 @@ var FixturesPage = {
         return;
       }
 
-      var grouped = this.groupByGameWeek(upcoming);
       var winnersByCode = {};
+      var sectionLabels = null;
+      var grouped;
       if (isKnockout && typeof KnockoutRounds !== 'undefined') {
         winnersByCode = KnockoutRounds.buildRoundWinnersMap(data);
-        grouped.orderedWeeks.sort(function (a, b) {
-          return KnockoutRounds.sortKeyFor(a) - KnockoutRounds.sortKeyFor(b);
-        });
+        var koGroup = KnockoutRounds.groupForList(upcoming);
+        grouped = { grouped: koGroup.grouped, orderedWeeks: koGroup.orderedKeys };
+        sectionLabels = koGroup.labels;
+      } else {
+        grouped = this.groupByGameWeek(upcoming);
       }
       this.renderGroups(container, grouped.grouped, grouped.orderedWeeks, {
         isKnockout: isKnockout,
         winnersByCode: winnersByCode,
+        sectionLabels: sectionLabels,
       });
     } catch (error) {
       console.error('Failed to load fixtures:', error);
@@ -429,11 +439,14 @@ var FixturesPage = {
     orderedWeeks.forEach(function (week) {
       var h3 = document.createElement('h3');
       var num = parseInt(week, 10);
-      h3.textContent = isKnockout
-        ? self.knockoutWeekLabel(week)
-        : isNaN(num)
-          ? self.KO_LABELS[week] || week
-          : 'Game Week ' + week;
+      h3.textContent =
+        isKnockout && options.sectionLabels
+          ? options.sectionLabels[week] || self.knockoutWeekLabel(week)
+          : isKnockout
+            ? self.knockoutWeekLabel(week)
+            : isNaN(num)
+              ? self.KO_LABELS[week] || week
+              : 'Game Week ' + week;
       h3.style.marginTop = '1.5em';
       h3.style.marginBottom = '0.5em';
       h3.style.fontWeight = 'bold';

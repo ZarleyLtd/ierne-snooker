@@ -57,11 +57,6 @@ document.addEventListener('DOMContentLoaded', function() {
     LeaguesPage.init();
   }
 
-  // Knockout bracket page
-  if (document.getElementById('knockout-bracket') && typeof KnockoutPage !== 'undefined') {
-    KnockoutPage.init();
-  }
-
   // Handicaps page
   if (document.getElementById('handicaps')) {
     HandicapsPage.init();

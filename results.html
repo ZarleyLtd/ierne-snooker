@@ -13,6 +13,14 @@
     <meta property="og:description" content="Match results" />
     <meta property="og:type" content="website" />
     <link rel="stylesheet" href="assets/css/style.css" />
+    <style>#filter-container.league-filter:not(.filters-visible),html.ierne-knockout-comp #filter-container{display:none!important}</style>
+    <script>
+      try {
+        if (sessionStorage.getItem('ierneCurrentCompType') === 'knockout') {
+          document.documentElement.classList.add('ierne-knockout-comp');
+        }
+      } catch (e) {}
+    </script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -141,7 +149,7 @@
         </div>
         <div class="entry-wrapper content__entry">
           <p id="page-competition-name" class="align-center" style="color:#169179;font-weight:600;margin-bottom:1rem;"></p>
-          <div id="filter-container" class="league-filter">
+          <div id="filter-container" class="league-filter" hidden>
             <label class="league-label"><input type="radio" name="league" value="All" checked> All</label>
             <label class="league-label"><input type="radio" name="league" value="A"> Group A</label>
             <label class="league-label"><input type="radio" name="league" value="B"> Group B</label>

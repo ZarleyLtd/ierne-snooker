@@ -14,20 +14,12 @@ const LeaguesPage = {
     }
 
     window.addEventListener(CurrentCompetition.EVENT_NAME, function () {
-      if (CurrentCompetition.isKnockout()) {
-        window.location.replace('knockout.html' + (window.location.search || ''));
-        return;
-      }
       self.loadStandings().catch(function (e) {
         console.error(e);
       });
     });
 
     await CurrentCompetition.whenReady(function () {
-      if (CurrentCompetition.isKnockout()) {
-        window.location.replace('knockout.html' + (window.location.search || ''));
-        return;
-      }
       return self.loadStandings();
     });
   },
