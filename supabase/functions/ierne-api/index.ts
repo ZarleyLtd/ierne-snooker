@@ -28,7 +28,11 @@
 //   upsertCompetitionGroup, deleteCompetitionGroup,
 //   upsertCompetitionPlayer, upsertPlayer, upsertHandicap,
 //   upsertFixture, updateFixtureResult, upsertBreak, deleteBreak,
-//   deleteFixture, deleteHandicap, deletePlayer
+//   deleteFixture, deleteHandicap, deletePlayer,
+//   issueInvite, listInvites, revokeInvite, listAccounts, disableAccount
+// Player session (no admin PIN): register, connect, resetPassword, signOut, whoAmI.
+// updateFixtureResult, upsertBreak, and deleteBreak also accept a player session
+// for that player's own match, until 24 hours after the result is first posted.
 //
 // Standings ordering (Ierne tiebreak chain):
 //   1. points desc
@@ -37,6 +41,21 @@
 //   4. alphabetical (stable)
 
 import postgres from "https://deno.land/x/postgresjs@v3.4.4/mod.js";
+import {
+  ApiError,
+  connectAccount,
+  disableAccount,
+  issueInvite,
+  listAccounts,
+  listInvites,
+  readPlayerSession,
+  registerAccount,
+  resetAccountPassword,
+  revokeInvite,
+  signOutAccount,
+  whoAmIAccount,
+  withinResultWindow,
+} from "./accounts.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -114,6 +133,7 @@ type FixtureRow = {
   score_a: number | null;
   score_b: number | null;
   sort_order: number;
+  result_posted_at?: string | Date | null;
 };
 
 type StandingRow = {
@@ -516,12 +536,16 @@ async function handleGetPlayers(req: Request): Promise<Response> {
       active: boolean;
       comp_count: number;
       match_count: number;
+      claimed: boolean;
     }[]>`
       select p.player_id,
              p.player_name,
              p.active,
              coalesce(cc.comp_count, 0)::int as comp_count,
-             coalesce(mc.match_count, 0)::int as match_count
+             coalesce(mc.match_count, 0)::int as match_count,
+             exists(
+               select 1 from ierne_snooker.accounts a where a.player_id = p.player_id
+             ) as claimed
         from ierne_snooker.players p
         left join lateral (
           select count(*)::int as comp_count
@@ -553,14 +577,18 @@ async function handleGetPlayers(req: Request): Promise<Response> {
         active: p.active,
         compCount: p.comp_count,
         matchCount: p.match_count,
+        claimed: Boolean(p.claimed),
       })),
     });
   }
 
   const compId = await resolveCompId(compParam, url.searchParams.get("competitionType"));
   const sql = db();
-  const rows = await sql<(CompetitionPlayerRow & { player_name: string; active: boolean })[]>`
-    select cp.competition_id, cp.group_id, cp.player_id, p.player_name, p.active
+  const rows = await sql<(CompetitionPlayerRow & { player_name: string; active: boolean; claimed: boolean })[]>`
+    select cp.competition_id, cp.group_id, cp.player_id, p.player_name, p.active,
+           exists(
+             select 1 from ierne_snooker.accounts a where a.player_id = p.player_id
+           ) as claimed
     from ierne_snooker.competition_players cp
     join ierne_snooker.players p on p.player_id = cp.player_id
     where cp.competition_id = ${compId}
@@ -570,11 +598,12 @@ async function handleGetPlayers(req: Request): Promise<Response> {
   return jsonResponse({
     success: true,
     compId,
-    players: (rows as unknown as Array<CompetitionPlayerRow & { player_name: string; active: boolean }>).map((r) => ({
+    players: (rows as unknown as Array<CompetitionPlayerRow & { player_name: string; active: boolean; claimed: boolean }>).map((r) => ({
       playerId: r.player_id,
       playerName: r.player_name,
       groupId: r.group_id,
       active: r.active,
+      claimed: Boolean(r.claimed),
     })),
   });
 }
@@ -635,7 +664,7 @@ async function handleGetFixtures(req: Request): Promise<Response> {
       select fixture_id, competition_id, group_id, stage, round_label,
              player_a_id, player_b_id,
              to_char(match_date, 'YYYY-MM-DD') as match_date,
-             score_a, score_b, sort_order
+             score_a, score_b, sort_order, result_posted_at
       from ierne_snooker.fixtures
       where competition_id = ${compId}
       order by sort_order asc, round_label asc
@@ -669,6 +698,12 @@ async function handleGetFixtures(req: Request): Promise<Response> {
       sortOrder: r.sort_order,
       playerAId: r.player_a_id,
       playerBId: r.player_b_id,
+      resultPostedAt: r.result_posted_at
+        ? (() => {
+          const posted = new Date(r.result_posted_at as string | Date);
+          return Number.isFinite(posted.getTime()) ? posted.toISOString() : null;
+        })()
+        : null,
     };
   });
 
@@ -888,6 +923,7 @@ type PostEnvelope = {
   action: string;
   data: Record<string, unknown>;
   adminToken?: string;
+  sessionToken?: string;
 };
 
 const ADMIN_TOKEN_TTL_SEC = 24 * 60 * 60;
@@ -908,6 +944,25 @@ const ADMIN_POST_ACTIONS = new Set([
   "deleteFixture",
   "deleteHandicap",
   "deletePlayer",
+  "issueInvite",
+  "listInvites",
+  "revokeInvite",
+  "listAccounts",
+  "disableAccount",
+]);
+
+const PUBLIC_POST_ACTIONS = new Set([
+  "register",
+  "connect",
+  "resetPassword",
+  "signOut",
+  "whoAmI",
+]);
+
+const PLAYER_RESULT_ACTIONS = new Set([
+  "updateFixtureResult",
+  "upsertBreak",
+  "deleteBreak",
 ]);
 
 function getAdminSecret(): string {
@@ -1006,7 +1061,8 @@ async function parsePostEnvelope(req: Request): Promise<PostEnvelope | null> {
       ? rawData as Record<string, unknown>
       : {};
     const adminToken = typeof parsed.adminToken === "string" ? parsed.adminToken : undefined;
-    return { action, data, adminToken };
+    const sessionToken = typeof parsed.sessionToken === "string" ? parsed.sessionToken : undefined;
+    return { action, data, adminToken, sessionToken };
   } catch {
     return null;
   }
@@ -1315,6 +1371,11 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
         score_a = ${sa},
         score_b = ${sb},
         sort_order = ${so},
+        result_posted_at = case
+          when ${sa !== null && sb !== null} then coalesce(result_posted_at, now())
+          when ${sa === null && sb === null} then null
+          else result_posted_at
+        end,
         updated_at = now()
       where fixture_id = ${fixtureId}::uuid
     `;
@@ -1324,16 +1385,69 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   await sql`
     insert into ierne_snooker.fixtures (
       competition_id, group_id, stage, round_label,
-      player_a_id, player_b_id, match_date, score_a, score_b, sort_order
+      player_a_id, player_b_id, match_date, score_a, score_b, sort_order, result_posted_at
     ) values (
       ${compId}, ${groupId}, ${stage}, ${roundLabel},
-      ${playerAId}, ${playerBId}, ${matchDate}, ${sa}, ${sb}, ${so}
+      ${playerAId}, ${playerBId}, ${matchDate}, ${sa}, ${sb}, ${so},
+      case
+        when ${sa !== null && sb !== null} then now()
+        else null
+      end
     )
   `;
   return jsonResponse({ success: true });
 }
 
-async function handleUpdateFixtureResult(data: Record<string, unknown>): Promise<Response> {
+async function requireResultEditor(
+  envelope: PostEnvelope,
+  fixtureId: string,
+): Promise<Response | {
+  admin: boolean;
+  playerAId: string;
+  playerBId: string;
+}> {
+  const sql = db();
+  const rows = await sql<{
+    fixture_id: string;
+    player_a_id: string;
+    player_b_id: string;
+    result_posted_at: string | Date | null;
+  }[]>`
+    select fixture_id, player_a_id, player_b_id, result_posted_at
+    from ierne_snooker.fixtures
+    where fixture_id = ${fixtureId}::uuid
+  `;
+  const fixture = rows[0];
+  if (!fixture) return errorResponse("Fixture not found", 404);
+
+  const adminToken = typeof envelope.adminToken === "string" ? envelope.adminToken.trim() : "";
+  if (adminToken && await verifyAdminToken(adminToken)) {
+    return { admin: true, playerAId: fixture.player_a_id, playerBId: fixture.player_b_id };
+  }
+
+  const player = await readPlayerSession(sql, envelope.sessionToken);
+  if (!player) {
+    if (adminToken) {
+      return unauthorizedResponse(
+        "Invalid or expired admin session. Unlock Admin Mode again from the menu.",
+      );
+    }
+    return unauthorizedResponse("Sign in as a player in this match, or unlock Admin Mode.");
+  }
+  if (player.playerId !== fixture.player_a_id && player.playerId !== fixture.player_b_id) {
+    return errorResponse("You can only report results for your own matches.", 403);
+  }
+  if (!withinResultWindow(fixture.result_posted_at)) {
+    return errorResponse(
+      "This result is locked. Only an admin can change it after 24 hours.",
+      403,
+    );
+  }
+  return { admin: false, playerAId: fixture.player_a_id, playerBId: fixture.player_b_id };
+}
+
+async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Response> {
+  const data = envelope.data;
   const fixtureId = String(data.fixtureId ?? "").trim();
   if (!fixtureId) return errorResponse("fixtureId required");
   const scoreA = parseNullableScore(data.scoreA);
@@ -1346,6 +1460,9 @@ async function handleUpdateFixtureResult(data: Record<string, unknown>): Promise
   if (rawB !== undefined && rawB !== null && rawB !== "" && scoreB === null) {
     return errorResponse("Invalid scoreB");
   }
+  const gate = await requireResultEditor(envelope, fixtureId);
+  if (gate instanceof Response) return gate;
+
   const hasMatchDate = Object.prototype.hasOwnProperty.call(data, "matchDate");
   let matchDateVal: string | null | undefined;
   if (hasMatchDate) {
@@ -1354,21 +1471,33 @@ async function handleUpdateFixtureResult(data: Record<string, unknown>): Promise
     else matchDateVal = String(md).trim();
   }
 
+  const sa = scoreA === null ? null : Math.trunc(scoreA);
+  const sb = scoreB === null ? null : Math.trunc(scoreB);
   const sql = db();
   if (hasMatchDate) {
     await sql`
       update ierne_snooker.fixtures
-      set score_a = ${scoreA === null ? null : Math.trunc(scoreA)},
-          score_b = ${scoreB === null ? null : Math.trunc(scoreB)},
+      set score_a = ${sa},
+          score_b = ${sb},
           match_date = ${matchDateVal},
+          result_posted_at = case
+            when ${sa !== null && sb !== null} then coalesce(result_posted_at, now())
+            when ${sa === null && sb === null} then null
+            else result_posted_at
+          end,
           updated_at = now()
       where fixture_id = ${fixtureId}::uuid
     `;
   } else {
     await sql`
       update ierne_snooker.fixtures
-      set score_a = ${scoreA === null ? null : Math.trunc(scoreA)},
-          score_b = ${scoreB === null ? null : Math.trunc(scoreB)},
+      set score_a = ${sa},
+          score_b = ${sb},
+          result_posted_at = case
+            when ${sa !== null && sb !== null} then coalesce(result_posted_at, now())
+            when ${sa === null && sb === null} then null
+            else result_posted_at
+          end,
           updated_at = now()
       where fixture_id = ${fixtureId}::uuid
     `;
@@ -1376,7 +1505,8 @@ async function handleUpdateFixtureResult(data: Record<string, unknown>): Promise
   return jsonResponse({ success: true });
 }
 
-async function handleUpsertBreak(data: Record<string, unknown>): Promise<Response> {
+async function handleUpsertBreak(envelope: PostEnvelope): Promise<Response> {
+  const data = envelope.data;
   const breakId = data.breakId ? String(data.breakId).trim() : "";
   const fixtureId = String(data.fixtureId ?? "").trim();
   const playerId = String(data.playerId ?? "").trim();
@@ -1385,8 +1515,22 @@ async function handleUpsertBreak(data: Record<string, unknown>): Promise<Respons
   if (!Number.isFinite(value)) return errorResponse("value must be a number");
   const vInt = Math.trunc(value);
   if (vInt < 1 || vInt > 155) return errorResponse("value must be 1..155");
+  const gate = await requireResultEditor(envelope, fixtureId);
+  if (gate instanceof Response) return gate;
+  if (!gate.admin && playerId !== gate.playerAId && playerId !== gate.playerBId) {
+    return errorResponse("Breaks on this match can only be recorded for the two players.", 403);
+  }
   const sql = db();
   if (breakId) {
+    if (!gate.admin) {
+      const existing = await sql<{ fixture_id: string }[]>`
+        select fixture_id from ierne_snooker.breaks where break_id = ${breakId}::uuid
+      `;
+      if (!existing[0]) return errorResponse("Break not found", 404);
+      if (String(existing[0].fixture_id).toLowerCase() !== fixtureId.toLowerCase()) {
+        return errorResponse("You can only change breaks on your own match.", 403);
+      }
+    }
     await sql`
       update ierne_snooker.breaks
       set fixture_id = ${fixtureId}::uuid,
@@ -1404,10 +1548,17 @@ async function handleUpsertBreak(data: Record<string, unknown>): Promise<Respons
   return jsonResponse({ success: true });
 }
 
-async function handleDeleteBreak(data: Record<string, unknown>): Promise<Response> {
+async function handleDeleteBreak(envelope: PostEnvelope): Promise<Response> {
+  const data = envelope.data;
   const breakId = String(data.breakId ?? "").trim();
   if (!breakId) return errorResponse("breakId required");
   const sql = db();
+  const existing = await sql<{ fixture_id: string }[]>`
+    select fixture_id from ierne_snooker.breaks where break_id = ${breakId}::uuid
+  `;
+  if (!existing[0]) return errorResponse("Break not found", 404);
+  const gate = await requireResultEditor(envelope, String(existing[0].fixture_id));
+  if (gate instanceof Response) return gate;
   await sql`delete from ierne_snooker.breaks where break_id = ${breakId}::uuid`;
   return jsonResponse({ success: true });
 }
@@ -1457,13 +1608,90 @@ async function handleDeletePlayer(data: Record<string, unknown>): Promise<Respon
   return jsonResponse({ success: true });
 }
 
-async function dispatchPost(envelope: PostEnvelope): Promise<Response> {
+function accountResult(result: unknown): Response {
+  if (result && typeof result === "object" && "sessionToken" in (result as object)) {
+    const body = result as { sessionToken: string; account: unknown };
+    return jsonResponse({ success: true, sessionToken: body.sessionToken, account: body.account });
+  }
+  if (result && typeof result === "object" && "handle" in (result as object) && "playerId" in (result as object)) {
+    return jsonResponse({ success: true, account: result });
+  }
+  return jsonResponse({ success: true, ...(result as object) });
+}
+
+async function dispatchAccount(envelope: PostEnvelope, req: Request): Promise<Response> {
+  const sql = db();
+  try {
+    switch (envelope.action) {
+      case "register":
+        return accountResult(await registerAccount(sql, req, envelope.data));
+      case "connect":
+        return accountResult(await connectAccount(sql, req, envelope.data));
+      case "resetPassword":
+        return accountResult(await resetAccountPassword(sql, req, envelope.data));
+      case "signOut":
+        return accountResult(await signOutAccount(sql, envelope.sessionToken));
+      case "whoAmI":
+        return accountResult(await whoAmIAccount(sql, envelope.sessionToken));
+      default:
+        return errorResponse(`Unknown action: ${envelope.action}`, 400);
+    }
+  } catch (err) {
+    if (err instanceof ApiError) return errorResponse(err.message, err.status);
+    throw err;
+  }
+}
+
+async function dispatchAdminAccount(envelope: PostEnvelope): Promise<Response> {
+  const sql = db();
+  try {
+    switch (envelope.action) {
+      case "issueInvite":
+        return accountResult(await issueInvite(sql, envelope.data));
+      case "listInvites":
+        return jsonResponse({ success: true, invites: await listInvites(sql) });
+      case "revokeInvite":
+        return accountResult(await revokeInvite(sql, envelope.data));
+      case "listAccounts":
+        return jsonResponse({ success: true, accounts: await listAccounts(sql) });
+      case "disableAccount":
+        return accountResult(await disableAccount(sql, envelope.data));
+      default:
+        return errorResponse(`Unknown action: ${envelope.action}`, 400);
+    }
+  } catch (err) {
+    if (err instanceof ApiError) return errorResponse(err.message, err.status);
+    throw err;
+  }
+}
+
+async function dispatchPost(envelope: PostEnvelope, req: Request): Promise<Response> {
+  if (PUBLIC_POST_ACTIONS.has(envelope.action)) {
+    return dispatchAccount(envelope, req);
+  }
+  if (PLAYER_RESULT_ACTIONS.has(envelope.action)) {
+    switch (envelope.action) {
+      case "updateFixtureResult": return handleUpdateFixtureResult(envelope);
+      case "upsertBreak": return handleUpsertBreak(envelope);
+      case "deleteBreak": return handleDeleteBreak(envelope);
+      default: return errorResponse(`Unknown action: ${envelope.action}`, 400);
+    }
+  }
   if (!ADMIN_POST_ACTIONS.has(envelope.action)) {
     return errorResponse(`Unknown action: ${envelope.action}`, 400);
   }
   if (envelope.action !== "adminLogin") {
     const denied = await requireAdmin(envelope);
     if (denied) return denied;
+  }
+  if (
+    envelope.action === "issueInvite" ||
+    envelope.action === "listInvites" ||
+    envelope.action === "revokeInvite" ||
+    envelope.action === "listAccounts" ||
+    envelope.action === "disableAccount"
+  ) {
+    return dispatchAdminAccount(envelope);
   }
   switch (envelope.action) {
     case "adminLogin": return handleAdminLogin(envelope.data);
@@ -1475,9 +1703,6 @@ async function dispatchPost(envelope: PostEnvelope): Promise<Response> {
     case "upsertCompetitionGroup": return handleUpsertCompetitionGroup(envelope.data);
     case "deleteCompetitionGroup": return handleDeleteCompetitionGroup(envelope.data);
     case "upsertFixture": return handleUpsertFixture(envelope.data);
-    case "updateFixtureResult": return handleUpdateFixtureResult(envelope.data);
-    case "upsertBreak": return handleUpsertBreak(envelope.data);
-    case "deleteBreak": return handleDeleteBreak(envelope.data);
     case "deleteFixture": return handleDeleteFixture(envelope.data);
     case "deleteHandicap": return handleDeleteHandicap(envelope.data);
     case "deletePlayer": return handleDeletePlayer(envelope.data);
@@ -1498,7 +1723,7 @@ Deno.serve(async (req: Request) => {
       const env = await parsePostEnvelope(req);
       if (!env?.action) return errorResponse("Missing required parameter: action");
       action = env.action;
-      return await dispatchPost(env);
+      return await dispatchPost(env, req);
     }
 
     const url = new URL(req.url);

@@ -1,6 +1,12 @@
-<!DOCTYPE html><html lang="en-gb"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Under development... - ierne-snooker</title><meta name="description" content="League A League B"><meta property="og:title" content="Under development..."><meta property="og:image" content="assets/images/Ierne-logo-768x920.png"><meta property="og:image:width" content="768"><meta property="og:image:height" content="920"><meta property="og:site_name" content="ierne-snooker"><meta property="og:description" content="League A League B"><meta property="og:type" content="website"><link rel="stylesheet" href="assets/css/style.css"><script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Under development...","description":"League A League B","image":{"@type":"ImageObject","url":"assets/images/Ierne-logo-768x920.png","height":920,"width":768},"publisher":{"@type":"Organization","name":"Ierne Snooker League","logo":{"@type":"ImageObject","url":"assets/images/Ierne-logo-768x920.png","height":920,"width":768}}}</script><noscript><style>img[loading] {
+<!DOCTYPE html><html lang="en-gb"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="theme-color" content="#D73A42" />
+    <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
+    <link rel="manifest" href="manifest.json" />
+<title>Under development... - ierne-snooker</title><meta name="description" content="League A League B"><meta property="og:title" content="Under development..."><meta property="og:image" content="assets/images/Ierne-logo-768x920.png"><meta property="og:image:width" content="768"><meta property="og:image:height" content="920"><meta property="og:site_name" content="ierne-snooker"><meta property="og:description" content="League A League B"><meta property="og:type" content="website"><link rel="stylesheet" href="assets/css/style.css"><script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Under development...","description":"League A League B","image":{"@type":"ImageObject","url":"assets/images/Ierne-logo-768x920.png","height":920,"width":768},"publisher":{"@type":"Organization","name":"Ierne Snooker League","logo":{"@type":"ImageObject","url":"assets/images/Ierne-logo-768x920.png","height":920,"width":768}}}</script><noscript><style>img[loading] {
                     opacity: 1;
-                }</style></noscript><script src="assets/js/config/app-config.js"></script><script src="assets/js/utils/api-client.js"></script><script src="assets/js/utils/current-competition.js"></script><script src="assets/js/utils/nav-competition.js"></script><script src="assets/js/utils/admin-mode.js"></script><script src="assets/js/utils/formatters.js"></script><script src="assets/js/utils/image-loader.js"></script><script src="assets/js/components/knockout-renderer.js"></script><script src="assets/js/components/league-standings.js"></script><script src="assets/js/pages/index.js"></script><script src="assets/js/pages/fixtures.js"></script><script src="assets/js/pages/results.js"></script><script src="assets/js/pages/leagues.js"></script><script src="assets/js/pages/handicaps.js"></script><script src="assets/js/pages/top-breaks.js"></script><script src="assets/js/pages/under-development.js"></script><script src="assets/js/pages/league-leaders.js"></script><script defer src="assets/js/main.js"></script></head><body class="page-template">    <header class="top js-header">
+                }</style></noscript><script src="assets/js/config/app-config.js"></script><script src="assets/js/utils/api-client.js"></script><script src="assets/js/utils/current-competition.js"></script><script src="assets/js/utils/nav-competition.js"></script><script src="assets/js/utils/admin-mode.js"></script>
+    <script src="assets/js/utils/player-session.js"></script><script src="assets/js/utils/formatters.js"></script><script src="assets/js/utils/image-loader.js"></script><script src="assets/js/components/knockout-renderer.js"></script><script src="assets/js/components/league-standings.js"></script><script src="assets/js/pages/index.js"></script><script src="assets/js/pages/fixtures.js"></script><script src="assets/js/pages/results.js"></script><script src="assets/js/pages/leagues.js"></script><script src="assets/js/pages/handicaps.js"></script><script src="assets/js/pages/top-breaks.js"></script><script src="assets/js/pages/under-development.js"></script><script src="assets/js/pages/league-leaders.js"></script><script defer src="assets/js/main.js"></script></head><body class="page-template">    <header class="top js-header">
       <a class="logo" href="index.html">
         <img src="assets/images/Ierne-logo-768x920.png" alt="ierne-snooker" width="768" height="920">
       </a>
@@ -32,6 +38,15 @@
           <li>
             <a href="rules.html" target="_self">Rules</a>
           </li>
+          <li class="nav-account-signed-out">
+            <button type="button" class="nav-account-connect">Connect</button>
+          </li>
+          <li class="nav-account-signed-in" hidden>
+            <span class="nav-account-who"></span>
+          </li>
+          <li class="nav-account-signed-in" hidden>
+            <button type="button" class="nav-account-signout">Sign out</button>
+          </li>
           <li>
             <button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle">Unlock Admin Mode</button>
           </li>
@@ -49,6 +64,9 @@
           </li>
           <li class="nav-admin-only" hidden aria-hidden="true">
             <a href="admin-bulk-fixtures.html" target="_self">Bulk Load Fixtures</a>
+          </li>
+          <li class="nav-admin-only" hidden aria-hidden="true">
+            <a href="admin-accounts.html" target="_self">Accounts</a>
           </li>
         </ul>
       </nav>

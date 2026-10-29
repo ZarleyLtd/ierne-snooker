@@ -1,6 +1,10 @@
 // Main Entry Point & Page Router
 // Determines which page module to initialize based on DOM elements
 
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(function () {});
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   // Initialize image loading
   ImageLoader.init();
@@ -33,6 +37,9 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   if (document.getElementById('adminCompetitionsRoot') && typeof AdminCompetitionsPage !== 'undefined') {
     AdminCompetitionsPage.init();
+  }
+  if (document.getElementById('adminAccountsRoot') && typeof AdminAccountsPage !== 'undefined') {
+    AdminAccountsPage.init();
   }
 
   // Page detection and initialization

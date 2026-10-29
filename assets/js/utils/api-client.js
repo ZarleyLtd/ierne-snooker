@@ -88,6 +88,20 @@ const ApiClient = {
         payload.adminToken = token;
       }
 
+      var sessionSkip = {
+        adminLogin: true,
+        register: true,
+        connect: true,
+        resetPassword: true,
+      };
+      if (!sessionSkip[action] && typeof localStorage !== 'undefined') {
+        var sessionToken = opts.sessionToken;
+        if (sessionToken === undefined) sessionToken = localStorage.getItem('ierneSessionToken');
+        if (typeof sessionToken === 'string' && sessionToken.trim()) {
+          payload.sessionToken = sessionToken.trim();
+        }
+      }
+
       const formData = new URLSearchParams();
       formData.append('data', JSON.stringify(payload));
 

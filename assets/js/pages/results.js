@@ -70,6 +70,14 @@ var ResultsPage = {
           console.error(e);
         });
       });
+      window.addEventListener(
+        typeof PlayerSession !== 'undefined' ? PlayerSession.EVENT_NAME : 'ierne-player-session-changed',
+        function () {
+          self.init().catch(function (e) {
+            console.error(e);
+          });
+        }
+      );
 
       if (typeof CurrentCompetition !== 'undefined') {
         if (typeof NavCompetition !== 'undefined') {
@@ -247,6 +255,7 @@ var ResultsPage = {
         div.setAttribute('data-player-a-name', nameA);
         div.setAttribute('data-player-b-name', nameB);
         div.setAttribute('data-match-date', match['Match Date'] || '');
+        div.setAttribute('data-result-posted-at', match.resultPostedAt || '');
 
         var sa = match.scoreA != null && match.scoreA !== '' ? Number(match.scoreA) : 0;
         var sb = match.scoreB != null && match.scoreB !== '' ? Number(match.scoreB) : 0;
@@ -267,7 +276,11 @@ var ResultsPage = {
         if (!isNaN(aScore) && !isNaN(bScore) && aScore > bScore) playerA.style.fontWeight = 'bold';
 
         var resultEl;
-        if (self.isAdmin() && fid && typeof FixturesPage !== 'undefined') {
+        var canEdit =
+          typeof FixturesPage !== 'undefined' &&
+          FixturesPage.canEditFixture &&
+          FixturesPage.canEditFixture(match.playerAId, match.playerBId, match.resultPostedAt || '');
+        if (canEdit && fid) {
           resultEl = document.createElement('button');
           resultEl.type = 'button';
           resultEl.className = 'results-score-btn';

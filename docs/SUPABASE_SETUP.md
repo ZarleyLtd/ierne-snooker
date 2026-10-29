@@ -17,7 +17,10 @@ schema: ierne_snooker
    ├─ competition_groups  (groups within a league comp)
    ├─ competition_players (roster per comp + group)
    ├─ players             (identity only)
-   ├─ fixtures            (comp + group + round + stage + scores)
+   ├─ accounts            (handle, password, one claimed player)
+   ├─ invites             (one-time register or reset codes; hash only)
+   ├─ sessions            (hashed player session tokens)
+   ├─ fixtures            (comp + group + round + stage + scores + result_posted_at)
    ├─ handicaps           (full history per player)
    └─ breaks              (big breaks per fixture per player)
 
@@ -116,21 +119,31 @@ Override with `?comp=<id>`.
 Mutations use `POST` with `Content-Type: application/x-www-form-urlencoded`
 and a single field `data` whose value is JSON:
 
-`{ "action": "<name>", "data": { ... }, "adminToken": "<optional>" }`
+`{ "action": "<name>", "data": { ... }, "adminToken": "<optional>", "sessionToken": "<optional>" }`
 
 CORS stays “simple” (no preflight), matching the public site rules.
 
 1. Call **`adminLogin`** with `{ "pin": "<same value as secret>" }` (no
    `adminToken`). On success the response includes `token` and `expiresAt`.
-2. Send `adminToken` on subsequent POSTs (stored in `sessionStorage` after you use **Unlock Admin Mode** in the site menu).
+2. Send `adminToken` on subsequent admin POSTs (stored in `sessionStorage` after you use **Unlock Admin Mode** in the site menu).
+3. Player actions send `sessionToken` (stored in `localStorage` after **Connect** or **Register**). `register`, `connect`, and `resetPassword` do not send a token.
 
 Set **`IERNE_ADMIN_SECRET`** on the Edge Function (Dashboard → Edge Functions
 → `ierne-api` → Secrets). Use a long random string or a club PIN; rotating it
 invalidates existing tokens. If the secret is unset, `adminLogin` returns an
-error and mutations return `401 Unauthorized`.
+error and admin mutations return `401 Unauthorized`.
 
 | Action                 | `data` fields (summary) |
 | ---------------------- | ----------------------- |
+| `register`             | `inviteCode`, `handle`, `password`, `playerId` — no admin token |
+| `connect`              | `handle`, `password` — returns `sessionToken` and `account` |
+| `resetPassword`        | `handle`, `resetCode`, `newPassword` |
+| `signOut` / `whoAmI`   | session token on the envelope, not in `data` |
+| `issueInvite`          | admin; `purpose` (`register`\|`reset`), optional `label`, `accountId` required for reset. Returns `code` once |
+| `listInvites`          | admin; pending unused codes (the code itself is not stored) |
+| `revokeInvite`         | admin; `inviteId` |
+| `listAccounts`         | admin |
+| `disableAccount`       | admin; `accountId` — revokes that account's sessions |
 | `adminLogin`           | `pin` or `secret` |
 | `upsertPlayer`         | `playerId`, `playerName`, `active` (optional, default true) |
 | `upsertCompetitionPlayer` | `compId`, `playerId`, `groupId`; or `remove: true` |
@@ -138,9 +151,9 @@ error and mutations return `401 Unauthorized`.
 | `upsertCompetition`    | `compId`, `name`, `competitionType` (`league`\|`knockout`), optional `parentCompId`, `startsOn`, `endsOn`, `isCurrent` |
 | `upsertCompetitionGroup` | `compId`, `groupId`, `name`, `displayOrder`; or `remove: true` |
 | `upsertFixture`        | optional `fixtureId`; `compId`, `stage` (`group`\|`knockout`), `roundLabel`, `playerAId`, `playerBId`; `groupId` required when `stage` is `group` |
-| `updateFixtureResult`  | `fixtureId`, `scoreA`, `scoreB`; optional `matchDate` |
-| `upsertBreak`          | optional `breakId`; `fixtureId`, `playerId`, `value` (1–155) |
-| `deleteBreak`          | `breakId` |
+| `updateFixtureResult`  | `fixtureId`, `scoreA`, `scoreB`; optional `matchDate`. Admin, or a player in the match within 24 hours of `result_posted_at` |
+| `upsertBreak`          | optional `breakId`; `fixtureId`, `playerId`, `value` (1–155). Same 24-hour rule as results |
+| `deleteBreak`          | `breakId`. Same 24-hour rule as results |
 | `deleteFixture`        | `fixtureId` (uuid) |
 | `deleteHandicap`       | `handicapId` (uuid) |
 | `deletePlayer`         | `playerId` — rejected with `409` if referenced |
@@ -184,13 +197,14 @@ If you ever need to recreate this from a fresh Supabase project:
    - `index.html` (knockout rounds from current knockout comp)
    - `leagues.html` and `under-development.html` (standings by group)
    - `fixtures.html`, `results.html`, `handicaps.html`, `top-breaks.html`
-   - Admin pages (after unlocking): `admin-fixtures.html`, `admin-bulk-fixtures.html`, `admin-players.html`, `admin-bulk-players.html`, `admin-competitions.html`
+   - Admin pages (after unlocking): `admin-fixtures.html`, `admin-bulk-fixtures.html`, `admin-players.html`, `admin-bulk-players.html`, `admin-competitions.html`, `admin-accounts.html`
 
 ## Editing data
 
 Three options:
 
-- **Unlock Admin Mode** (menu): enter the same value as `IERNE_ADMIN_SECRET`, then use admin-only UI on fixtures/results and the five **Manage** pages (`admin-fixtures`, `admin-bulk-fixtures`, `admin-players`, `admin-bulk-players`, `admin-competitions`).
+- **Unlock Admin Mode** (menu): enter the same value as `IERNE_ADMIN_SECRET`, then use admin-only UI on fixtures/results and the manage pages, including **Accounts** (`admin-accounts.html`) where one-time registration and password-reset codes are issued.
+- **Player accounts**: a person with a registration code chooses a handle, a password, and which existing player they are. They can post or edit a result (scores, date, and breaks) only for a match they are in, and only for 24 hours after that result is first saved. After that, only an admin can change it. The public link does not require a sign-in.
 - **Via the Supabase dashboard** Table Editor on the `ierne_snooker` schema.
   Useful for entering match results, breaks, and adjusting handicaps.
 - **Re-run the migration script** after the source Google Sheets are

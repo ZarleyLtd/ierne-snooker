@@ -17,6 +17,9 @@ var FixturesPage = {
   _loadedBreakIds: [],
   /** Per-frame winner for current dialog: index 0..2 → null | 'a' | 'b' */
   _matchFrameWinners: [],
+  /** A player may edit their own match until 24 hours after the result is first posted. */
+  RESULT_EDIT_MS: 24 * 60 * 60 * 1000,
+  _openResultPostedAt: '',
   _resultDialogBindingsDone: false,
 
   adminModeEvent: function () {
@@ -25,6 +28,20 @@ var FixturesPage = {
 
   isAdmin: function () {
     return typeof AdminMode !== 'undefined' && AdminMode.isUnlocked();
+  },
+
+  canEditFixture: function (playerAId, playerBId, resultPostedAt) {
+    if (this.isAdmin()) return true;
+    if (typeof PlayerSession === 'undefined' || !PlayerSession.isSignedIn()) return false;
+    var mine = this.normalizePlayerId(PlayerSession.playerId());
+    if (!mine) return false;
+    if (mine !== this.normalizePlayerId(playerAId) && mine !== this.normalizePlayerId(playerBId)) {
+      return false;
+    }
+    if (!resultPostedAt) return true;
+    var posted = new Date(resultPostedAt).getTime();
+    if (isNaN(posted)) return true;
+    return Date.now() < posted + this.RESULT_EDIT_MS;
   },
 
   localISODate: function () {
@@ -83,6 +100,14 @@ var FixturesPage = {
         console.error(e);
       });
     });
+    window.addEventListener(
+      typeof PlayerSession !== 'undefined' ? PlayerSession.EVENT_NAME : 'ierne-player-session-changed',
+      function () {
+        self.render().catch(function (e) {
+          console.error(e);
+        });
+      }
+    );
 
     if (typeof CurrentCompetition !== 'undefined') {
       if (typeof NavCompetition !== 'undefined') {
@@ -476,6 +501,7 @@ var FixturesPage = {
         div.setAttribute('data-player-a-name', nameA);
         div.setAttribute('data-player-b-name', nameB);
         div.setAttribute('data-match-date', match['Match Date'] || '');
+        div.setAttribute('data-result-posted-at', match.resultPostedAt || '');
         var resultReady = self.fixtureResultReady(match, isKnockout, winnersByCode);
         div.setAttribute('data-result-ready', resultReady ? 'true' : 'false');
 
@@ -485,7 +511,8 @@ var FixturesPage = {
         playerA.style.textAlign = 'right';
 
         var center;
-        if (self.isAdmin() && fid && resultReady) {
+        var canEdit = self.canEditFixture(match.playerAId, match.playerBId, match.resultPostedAt || '');
+        if (canEdit && fid && resultReady) {
           center = document.createElement('button');
           center.type = 'button';
           center.className = 'fixture-vs-btn';
@@ -603,6 +630,8 @@ var FixturesPage = {
     var nameA = rowEl.getAttribute('data-player-a-name');
     var nameB = rowEl.getAttribute('data-player-b-name');
     var prevDate = rowEl.getAttribute('data-match-date');
+    this._openResultPostedAt = rowEl.getAttribute('data-result-posted-at') || '';
+    if (!this.canEditFixture(pidA, pidB, this._openResultPostedAt)) return;
 
     document.getElementById('fixture-result-fixture-id').value = fid;
     document.getElementById('fixture-result-player-a-id').value = pidA;
@@ -693,9 +722,9 @@ var FixturesPage = {
 
     if (!fixtureId) throw new Error('Missing fixture');
 
-    if (typeof AdminMode !== 'undefined' && !AdminMode.isUnlocked()) {
+    if (!this.canEditFixture(pidA, pidB, this._openResultPostedAt || '')) {
       throw new Error(
-        'Admin Mode is locked or expired. Use Unlock Admin Mode in the menu, then save again.'
+        'This result can only be changed within 24 hours of being posted, and only by a player in the match or an admin.'
       );
     }
 

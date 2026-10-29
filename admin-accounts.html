@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en-gb">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#D73A42" />
+    <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
+    <link rel="manifest" href="manifest.json" />
+
+    <title>Accounts - ierne-snooker</title>
+    <link rel="stylesheet" href="assets/css/style.css" />
+    <link rel="stylesheet" href="assets/css/admin-panel.css" />
+    <noscript
+      ><style>
+        img[loading] {
+          opacity: 1;
+        }
+      </style></noscript
+    >
+    <script src="assets/js/config/app-config.js"></script>
+    <script src="assets/js/utils/api-client.js"></script>
+    <script src="assets/js/utils/admin-mode.js"></script>
+    <script src="assets/js/utils/player-session.js"></script>
+    <script src="assets/js/utils/formatters.js"></script>
+    <script src="assets/js/utils/image-loader.js"></script>
+    <script defer src="assets/js/pages/admin-accounts.js"></script>
+    <script defer src="assets/js/main.js"></script>
+  </head>
+  <body class="page-template">
+    <header class="top js-header">
+      <a class="logo" href="index.html">
+        <img src="assets/images/Ierne-logo-768x920.png" alt="ierne-snooker" width="768" height="920" />
+      </a>
+      <nav class="navbar js-navbar">
+        <button class="navbar__toggle js-toggle" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+          <span class="navbar__toggle-box">
+            <span class="navbar__toggle-inner">Menu</span>
+          </span>
+        </button>
+        <ul class="navbar__menu">
+          <li><a href="index.html" target="_self">Home</a></li>
+          <li><a href="leagues.html" target="_self">Leagues</a></li>
+          <li><a href="fixtures.html" target="_self">Fixtures</a></li>
+          <li><a href="results.html" target="_self">Results</a></li>
+          <li><a href="top-breaks.html" target="_self">Top Breaks</a></li>
+          <li><a href="handicaps.html" target="_self">Handicaps</a></li>
+          <li><a href="rules.html" target="_self">Rules</a></li>
+          <li class="nav-account-signed-out">
+            <button type="button" class="nav-account-connect">Connect</button>
+          </li>
+          <li class="nav-account-signed-in" hidden>
+            <span class="nav-account-who"></span>
+          </li>
+          <li class="nav-account-signed-in" hidden>
+            <button type="button" class="nav-account-signout">Sign out</button>
+          </li>
+          <li><button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle">Unlock Admin Mode</button></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-competitions.html" target="_self">Manage Comps</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-players.html" target="_self">Manage Players</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-fixtures.html" target="_self">Manage Fixtures</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-bulk-players.html" target="_self">Bulk Load Players</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-bulk-fixtures.html" target="_self">Bulk Load Fixtures</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-accounts.html" target="_self">Accounts</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main class="page">
+      <article class="content">
+        <div class="hero">
+          <header class="hero__content hero__content--centered">
+            <div class="wrapper"><h1>Accounts</h1></div>
+          </header>
+          <figure class="hero__image">
+            <div class="hero__image-wrapper">
+              <img src="assets/images/heroBG-.jpg" loading="eager" height="529" width="1456" alt="Snooker table" />
+            </div>
+          </figure>
+        </div>
+        <div class="entry-wrapper content__entry" id="adminAccountsRoot">
+          <p id="adminAccountsGate" class="msg msg--info">
+            Unlock <strong>Admin Mode</strong> from the menu to issue registration codes and manage player accounts.
+          </p>
+          <div id="adminAccountsPanel" class="admin-container" hidden>
+            <p id="adminAcMsg" class="msg" hidden></p>
+            <section class="admin-account-section">
+              <h2>New code</h2>
+              <p>A registration code is used once. The player chooses a handle, a password, and which existing player they are. A reset code is also used once and lasts 24 hours.</p>
+              <div class="admin-account-form">
+                <div class="field">
+                  <label for="adminAcPurpose">Type</label>
+                  <select id="adminAcPurpose">
+                    <option value="register">Registration</option>
+                    <option value="reset">Password reset</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="adminAcLabel">Note</label>
+                  <input type="text" id="adminAcLabel" maxlength="80" placeholder="Optional, e.g. for Sam" />
+                </div>
+                <div class="field" id="adminAcAccountField" hidden>
+                  <label for="adminAcAccount">Account</label>
+                  <select id="adminAcAccount"></select>
+                </div>
+                <div class="field">
+                  <button type="button" class="btn" id="adminAcIssue">Issue code</button>
+                </div>
+              </div>
+              <div id="adminAcCodeBox" hidden></div>
+            </section>
+            <section class="admin-account-section">
+              <h2>Unused codes</h2>
+              <div id="adminAcInvites" class="admin-player-picks admin-item-list">
+                <p class="admin-player-picks__hint"><em>Loading…</em></p>
+              </div>
+            </section>
+            <section class="admin-account-section">
+              <h2>Player accounts</h2>
+              <div id="adminAcAccounts" class="admin-player-picks admin-item-list">
+                <p class="admin-player-picks__hint"><em>Loading…</em></p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </article>
+    </main>
+    <footer class="footer">
+      <div class="wrapper">
+        <nav class="footer__nav">
+          <ul>
+            <li><a href="leagues.html" class="al" target="_self">Leagues</a></li>
+            <li><a href="fixtures.html" class="al" target="_self">Fixtures</a></li>
+            <li><a href="results.html" class="al" target="_self">Results</a></li>
+          </ul>
+        </nav>
+        <div class="footer__copyright"><p><span style="color: #169179">by JP</span></p></div>
+        <button id="backToTop" class="footer__bttop" aria-label="Back to top" title="Back to top">
+          <svg width="20" height="20" viewBox="0 0 24 24">
+            <path d="M8 6L12 2L16 6" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M12 2V22" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </div>
+    </footer>
+    <script defer src="assets/js/scripts.min.js"></script>
+    <script>
+      window.themeMenuConfig = {
+        mobileMenuMode: "overlay",
+        animationSpeed: 300,
+        submenuWidth: "auto",
+        doubleClickTime: 500,
+        mobileMenuExpandableSubmenus: true,
+        relatedContainerForOverlayMenuSelector: ".top",
+      };
+    </script>
+    <script src="assets/js/utils/nav-active.js"></script>
+  </body>
+</html>
