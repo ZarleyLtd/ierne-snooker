@@ -1,6 +1,6 @@
 {
   "name": "Ierne Snooker",
-  "short_name": "Ierne",
+  "short_name": "Ierne Snooker",
   "description": "Ierne snooker leagues, fixtures, and results.",
   "start_url": "./index.html",
   "scope": "./",
