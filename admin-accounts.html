@@ -12,6 +12,7 @@
     <title>Accounts - ierne-snooker</title>
     <link rel="stylesheet" href="assets/css/style.css" />
     <link rel="stylesheet" href="assets/css/admin-panel.css" />
+    <link rel="stylesheet" href="assets/css/brief-message.css" />
     <noscript
       ><style>
         img[loading] {
@@ -25,6 +26,7 @@
     <script src="assets/js/utils/player-session.js"></script>
     <script src="assets/js/utils/formatters.js"></script>
     <script src="assets/js/utils/image-loader.js"></script>
+    <script src="assets/js/utils/brief-message.js"></script>
     <script defer src="assets/js/pages/admin-accounts.js"></script>
     <script defer src="assets/js/main.js"></script>
   </head>
@@ -86,25 +88,14 @@
             <p id="adminAcMsg" class="msg" hidden></p>
             <section class="admin-account-section">
               <h2>New code</h2>
-              <p>A registration code is used once. The player chooses a handle, a password, and which existing player they are. A reset code is also used once and lasts 24 hours.</p>
+              <p>A registration code is used once. The player chooses a handle, a password, and which existing player they are. It expires after 30 days.</p>
               <div class="admin-account-form">
-                <div class="field">
-                  <label for="adminAcPurpose">Type</label>
-                  <select id="adminAcPurpose">
-                    <option value="register">Registration</option>
-                    <option value="reset">Password reset</option>
-                  </select>
-                </div>
                 <div class="field">
                   <label for="adminAcLabel">Note</label>
                   <input type="text" id="adminAcLabel" maxlength="80" placeholder="Optional, e.g. for Sam" />
                 </div>
-                <div class="field" id="adminAcAccountField" hidden>
-                  <label for="adminAcAccount">Account</label>
-                  <select id="adminAcAccount"></select>
-                </div>
-                <div class="field">
-                  <button type="button" class="btn" id="adminAcIssue">Issue code</button>
+                <div class="admin-account-form__action">
+                  <button type="button" class="btn admin-ac-btn" id="adminAcIssue">Issue code</button>
                 </div>
               </div>
               <div id="adminAcCodeBox" hidden></div>
@@ -121,6 +112,23 @@
                 <p class="admin-player-picks__hint"><em>Loading…</em></p>
               </div>
             </section>
+          </div>
+          <div id="adminAcAccountModal" class="admin-modal admin-modal--dark" hidden>
+            <div class="admin-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="adminAcAccountTitle">
+              <div class="admin-modal__header">
+                <h2 id="adminAcAccountTitle">Account</h2>
+                <button type="button" class="admin-modal__close" id="adminAcAccountClose" aria-label="Close">&times;</button>
+              </div>
+              <p id="adminAcAccountMeta" class="admin-ac-dialog__meta"></p>
+              <p id="adminAcAccountHint" class="admin-ac-dialog__hint">Admin accounts can manage the league while they are signed in. A password reset code is used once and lasts 24 hours.</p>
+              <div class="admin-ac-dialog__actions">
+                <button type="button" class="btn admin-ac-btn" id="adminAcToggleAdmin">Make admin</button>
+                <button type="button" class="btn admin-ac-btn" id="adminAcReset">Issue password reset</button>
+                <button type="button" class="btn admin-ac-btn btn-danger" id="adminAcDisable">Disable account</button>
+              </div>
+              <div id="adminAcResetBox" hidden></div>
+              <p id="adminAcAccountMsg" class="msg" hidden></p>
+            </div>
           </div>
         </div>
       </article>

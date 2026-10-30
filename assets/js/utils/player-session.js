@@ -1,5 +1,6 @@
 // Player identity: one-time registration code, then handle + password on any device.
-// The public site stays readable without a session. This never unlocks admin pages.
+// The public site stays readable without a session.
+// An account marked admin can open admin pages while that session is signed in.
 
 var PlayerSession = {
   TOKEN_KEY: 'ierneSessionToken',
@@ -63,6 +64,13 @@ var PlayerSession = {
     localStorage.setItem(this.ACCOUNT_KEY, JSON.stringify(account));
     this.refreshNav();
     this.dispatchChange();
+    this.syncAdminChrome();
+  },
+
+  syncAdminChrome: function () {
+    if (typeof AdminMode === 'undefined') return;
+    AdminMode.refreshNavLabel();
+    AdminMode.dispatchChange();
   },
 
   refreshNav: function () {
@@ -92,6 +100,7 @@ var PlayerSession = {
         localStorage.setItem(self.ACCOUNT_KEY, JSON.stringify(r.account));
         self.refreshNav();
         self.dispatchChange();
+        self.syncAdminChrome();
       })
       .catch(function (err) {
         var msg = err && err.message ? String(err.message) : '';
@@ -99,6 +108,7 @@ var PlayerSession = {
           self.clearLocal();
           self.refreshNav();
           self.dispatchChange();
+          self.syncAdminChrome();
         }
       });
   },
@@ -109,6 +119,7 @@ var PlayerSession = {
       self.clearLocal();
       self.refreshNav();
       self.dispatchChange();
+      self.syncAdminChrome();
     };
     if (!this.token()) {
       finish();
@@ -162,6 +173,8 @@ var PlayerSession = {
       '<p><input type="text" id="player-register-handle" class="admin-unlock-dialog__input" autocomplete="username" required pattern="[A-Za-z0-9]{3,20}" title="3 to 20 letters or digits" /></p>' +
       '<p><label for="player-register-password">Password</label></p>' +
       '<p><input type="password" id="player-register-password" class="admin-unlock-dialog__input" autocomplete="new-password" required minlength="8" /></p>' +
+      '<p><label for="player-register-password2">Confirm password</label></p>' +
+      '<p><input type="password" id="player-register-password2" class="admin-unlock-dialog__input" autocomplete="new-password" required minlength="8" /></p>' +
       '<p><label for="player-register-player">You are</label></p>' +
       '<p><select id="player-register-player" class="admin-unlock-dialog__input" required><option value="">Loading players…</option></select></p>' +
       '<p id="player-register-msg" class="admin-unlock-dialog__msg" hidden></p>' +
@@ -230,15 +243,22 @@ var PlayerSession = {
 
     register.querySelector('form').addEventListener('submit', function (e) {
       e.preventDefault();
+      var password = document.getElementById('player-register-password').value;
+      var confirmPassword = document.getElementById('player-register-password2').value;
+      if (password !== confirmPassword) {
+        self.setMsg('player-register-msg', 'Passwords do not match.', true);
+        return;
+      }
       self.setMsg('player-register-msg', 'Registering…', false);
       ApiClient.post('register', {
         inviteCode: document.getElementById('player-register-code').value,
         handle: document.getElementById('player-register-handle').value,
-        password: document.getElementById('player-register-password').value,
+        password: password,
         playerId: document.getElementById('player-register-player').value,
       })
         .then(function (r) {
           document.getElementById('player-register-password').value = '';
+          document.getElementById('player-register-password2').value = '';
           document.getElementById('player-register-code').value = '';
           self.setMsg('player-register-msg', '', false);
           self.store(r.sessionToken, r.account);

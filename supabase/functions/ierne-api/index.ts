@@ -29,7 +29,7 @@
 //   upsertCompetitionPlayer, upsertPlayer, upsertHandicap,
 //   upsertFixture, updateFixtureResult, upsertBreak, deleteBreak,
 //   deleteFixture, deleteHandicap, deletePlayer,
-//   issueInvite, listInvites, revokeInvite, listAccounts, disableAccount
+//   issueInvite, listInvites, revokeInvite, listAccounts, disableAccount, setAccountAdmin
 // Player session (no admin PIN): register, connect, resetPassword, signOut, whoAmI.
 // updateFixtureResult, upsertBreak, and deleteBreak also accept a player session
 // for that player's own match, until 24 hours after the result is first posted.
@@ -48,6 +48,7 @@ import {
   issueInvite,
   listAccounts,
   listInvites,
+  setAccountAdmin,
   readPlayerSession,
   registerAccount,
   resetAccountPassword,
@@ -949,6 +950,7 @@ const ADMIN_POST_ACTIONS = new Set([
   "revokeInvite",
   "listAccounts",
   "disableAccount",
+  "setAccountAdmin",
 ]);
 
 const PUBLIC_POST_ACTIONS = new Set([
@@ -1071,12 +1073,17 @@ async function parsePostEnvelope(req: Request): Promise<PostEnvelope | null> {
 async function requireAdmin(envelope: PostEnvelope): Promise<Response | null> {
   const raw = envelope.adminToken;
   const token = typeof raw === "string" ? raw.trim() : "";
-  if (!token) {
+  if (token && (await verifyAdminToken(token))) return null;
+  const session = typeof envelope.sessionToken === "string" ? envelope.sessionToken.trim() : "";
+  if (session) {
+    const actor = await readPlayerSession(db(), session);
+    if (actor?.isAdmin) return null;
+  }
+  if (!token && !session) {
     return unauthorizedResponse(
       "Missing admin token. Unlock Admin Mode from the site menu, then try again.",
     );
   }
-  if (await verifyAdminToken(token)) return null;
   return unauthorizedResponse(
     "Invalid or expired admin session. Unlock Admin Mode again from the menu.",
   );
@@ -1656,6 +1663,8 @@ async function dispatchAdminAccount(envelope: PostEnvelope): Promise<Response> {
         return jsonResponse({ success: true, accounts: await listAccounts(sql) });
       case "disableAccount":
         return accountResult(await disableAccount(sql, envelope.data));
+      case "setAccountAdmin":
+        return accountResult(await setAccountAdmin(sql, envelope.data));
       default:
         return errorResponse(`Unknown action: ${envelope.action}`, 400);
     }
@@ -1689,7 +1698,8 @@ async function dispatchPost(envelope: PostEnvelope, req: Request): Promise<Respo
     envelope.action === "listInvites" ||
     envelope.action === "revokeInvite" ||
     envelope.action === "listAccounts" ||
-    envelope.action === "disableAccount"
+    envelope.action === "disableAccount" ||
+    envelope.action === "setAccountAdmin"
   ) {
     return dispatchAdminAccount(envelope);
   }

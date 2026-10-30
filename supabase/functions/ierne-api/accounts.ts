@@ -28,12 +28,14 @@ export type PublicAccount = {
   handle: string;
   playerId: string;
   playerName: string;
+  isAdmin: boolean;
 };
 
 export type PlayerActor = {
   accountId: string;
   playerId: string;
   handle: string;
+  isAdmin: boolean;
 };
 
 function randomCode(len = 8) {
@@ -103,12 +105,17 @@ function isUniqueViolation(err: unknown) {
   return !!err && typeof err === "object" && (err as { code?: string }).code === "23505";
 }
 
+function flagBool(value: unknown) {
+  return value === true || value === "t" || value === "true" || value === 1;
+}
+
 function publicAccount(row: Record<string, unknown>): PublicAccount {
   return {
     id: String(row.id ?? row.account_id),
     handle: String(row.handle),
     playerId: String(row.player_id),
     playerName: String(row.player_name ?? ""),
+    isAdmin: flagBool(row.is_admin),
   };
 }
 
@@ -135,6 +142,7 @@ async function findSession(sql: Sql, token: string) {
            a.handle,
            a.player_id,
            a.disabled_at,
+           a.is_admin,
            p.player_name
     from ierne_snooker.sessions s
     join ierne_snooker.accounts a on a.id = s.account_id
@@ -183,6 +191,7 @@ export async function readPlayerSession(sql: Sql, token: unknown): Promise<Playe
     accountId: String(row.account_id),
     playerId: String(row.player_id),
     handle: String(row.handle),
+    isAdmin: flagBool(row.is_admin),
   };
 }
 
@@ -266,6 +275,7 @@ export async function registerAccount(sql: Sql, req: Request, data: Record<strin
           handle: account.handle,
           player_id: account.player_id,
           player_name: player.player_name,
+          is_admin: false,
         }),
       };
     });
@@ -287,7 +297,7 @@ export async function connectAccount(sql: Sql, req: Request, data: Record<string
     throw new ApiError("Too many attempts. Try again later.", 429);
   }
   const rows = await sql`
-    select a.id, a.handle, a.password_hash, a.player_id, a.disabled_at, p.player_name
+    select a.id, a.handle, a.password_hash, a.player_id, a.disabled_at, a.is_admin, p.player_name
     from ierne_snooker.accounts a
     join ierne_snooker.players p on p.player_id = a.player_id
     where a.handle = ${handle}
@@ -455,7 +465,7 @@ export async function revokeInvite(sql: Sql, data: Record<string, unknown>) {
 
 export async function listAccounts(sql: Sql) {
   const rows = await sql`
-    select a.id, a.handle, a.player_id, a.disabled_at, a.created_at, a.last_seen_at, p.player_name
+    select a.id, a.handle, a.player_id, a.is_admin, a.disabled_at, a.created_at, a.last_seen_at, p.player_name
     from ierne_snooker.accounts a
     join ierne_snooker.players p on p.player_id = a.player_id
     order by a.handle asc
@@ -465,6 +475,7 @@ export async function listAccounts(sql: Sql) {
     handle: row.handle,
     playerId: row.player_id,
     playerName: row.player_name,
+    isAdmin: flagBool(row.is_admin),
     disabled: row.disabled_at != null,
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
@@ -494,4 +505,18 @@ export async function disableAccount(sql: Sql, data: Record<string, unknown>) {
       and revoked_at is null
   `;
   return { ok: true };
+}
+
+export async function setAccountAdmin(sql: Sql, data: Record<string, unknown>) {
+  const accountId = String(data.accountId ?? "").trim();
+  if (!accountId) throw new ApiError("accountId required");
+  const isAdmin = data.isAdmin === true || data.isAdmin === "true" || data.isAdmin === 1;
+  const rows = await sql`
+    update ierne_snooker.accounts
+    set is_admin = ${isAdmin}, updated_at = now()
+    where id = ${accountId}::uuid
+    returning id, is_admin
+  `;
+  if (!rows.length) throw new ApiError("Account not found", 404);
+  return { ok: true, isAdmin: flagBool(rows[0].is_admin) };
 }
