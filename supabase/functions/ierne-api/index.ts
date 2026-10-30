@@ -29,10 +29,13 @@
 //   upsertCompetitionPlayer, upsertPlayer, upsertHandicap,
 //   upsertFixture, updateFixtureResult, upsertBreak, deleteBreak,
 //   deleteFixture, deleteHandicap, deletePlayer,
+//   getResultSlip, uploadResultSlip, commitResultSlip,
+//   discardResultSlipSession, removeResultSlip,
 //   issueInvite, listInvites, revokeInvite, listAccounts, disableAccount, setAccountAdmin
 // Player session (no admin PIN): register, connect, resetPassword, signOut, whoAmI.
-// updateFixtureResult, upsertBreak, and deleteBreak also accept a player session
+// updateFixtureResult, breaks, and result-slip actions also accept a player session
 // for that player's own match, until 24 hours after the result is first posted.
+// result_entered_by is "Admin" or the player's name.
 //
 // Standings ordering (Ierne tiebreak chain):
 //   1. points desc
@@ -41,6 +44,7 @@
 //   4. alphabetical (stable)
 
 import postgres from "https://deno.land/x/postgresjs@v3.4.4/mod.js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
   ApiError,
   connectAccount,
@@ -95,6 +99,104 @@ function db() {
   return _sql;
 }
 
+/** Private Storage bucket for result-slip photos (signed URLs only). */
+const RESULT_SLIP_BUCKET = "ierne-result-slips";
+/** Seconds a signed slip URL stays valid (1 hour). */
+const RESULT_SLIP_SIGNED_URL_TTL = 3600;
+const RESULT_SLIP_MAX_BYTES = 1_500_000;
+
+let _sb: ReturnType<typeof createClient> | null = null;
+function storageClient() {
+  if (_sb) return _sb;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+  _sb = createClient(supabaseUrl, serviceRoleKey);
+  return _sb;
+}
+
+function resultSlipPendingPath(fixtureId: string): string {
+  return `fixtures/${fixtureId}/pending.jpg`;
+}
+
+function resultSlipCommittedPath(fixtureId: string): string {
+  return `fixtures/${fixtureId}/slip.jpg`;
+}
+
+function decodeImagePayload(
+  base64: unknown,
+  mimeType: unknown,
+): { bytes: Uint8Array; mime: string } | null {
+  const raw = String(base64 || "").replace(/^data:[^,]+,/, "").replace(/\s/g, "");
+  if (!raw) return null;
+  const mime = String(mimeType || "image/jpeg");
+  if (mime !== "image/jpeg" && mime !== "image/png" && mime !== "image/webp") return null;
+  let bin: string;
+  try {
+    bin = atob(raw);
+  } catch {
+    return null;
+  }
+  if (bin.length > RESULT_SLIP_MAX_BYTES) return null;
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return { bytes, mime };
+}
+
+async function getSignedSlipUrl(path: string | null | undefined): Promise<string | null> {
+  if (!path) return null;
+  const sb = storageClient();
+  const { data, error } = await sb.storage
+    .from(RESULT_SLIP_BUCKET)
+    .createSignedUrl(path, RESULT_SLIP_SIGNED_URL_TTL);
+  if (error) {
+    console.warn("Failed to sign result-slip URL:", error.message);
+    return null;
+  }
+  return data?.signedUrl || null;
+}
+
+async function uploadSlipBytes(path: string, bytes: Uint8Array, mime: string): Promise<void> {
+  const sb = storageClient();
+  const { error } = await sb.storage.from(RESULT_SLIP_BUCKET).upload(path, bytes, {
+    contentType: mime,
+    upsert: true,
+  });
+  if (error) throw new Error(error.message);
+}
+
+async function deleteSlipPaths(paths: string[]): Promise<void> {
+  const clean = paths.map((p) => String(p || "").trim()).filter(Boolean);
+  if (!clean.length) return;
+  const sb = storageClient();
+  const { error } = await sb.storage.from(RESULT_SLIP_BUCKET).remove(clean);
+  if (error) console.warn("Failed to delete result-slip object(s):", error.message);
+}
+
+async function clearFixtureResultSlip(fixtureId: string): Promise<void> {
+  const pending = resultSlipPendingPath(fixtureId);
+  const committed = resultSlipCommittedPath(fixtureId);
+  const sql = db();
+  const rows = await sql<{ result_slip_path: string | null }[]>`
+    select result_slip_path
+      from ierne_snooker.fixtures
+     where fixture_id = ${fixtureId}::uuid
+  `;
+  const dbPath = rows[0]?.result_slip_path || null;
+  const toRemove = [pending, committed];
+  if (dbPath && dbPath !== pending && dbPath !== committed) toRemove.push(dbPath);
+  await deleteSlipPaths(toRemove);
+  await sql`
+    update ierne_snooker.fixtures
+       set result_slip_path = null,
+           result_slip_mime = null,
+           updated_at = now()
+     where fixture_id = ${fixtureId}::uuid
+  `;
+}
+
 // ---------- Types -----------------------------------------------------------
 
 type PlayerRow = { player_id: string; player_name: string; active: boolean };
@@ -134,6 +236,8 @@ type FixtureRow = {
   score_a: number | null;
   score_b: number | null;
   sort_order: number;
+  best_of: number;
+  result_entered_by: string | null;
   result_posted_at?: string | Date | null;
 };
 
@@ -665,7 +769,7 @@ async function handleGetFixtures(req: Request): Promise<Response> {
       select fixture_id, competition_id, group_id, stage, round_label,
              player_a_id, player_b_id,
              to_char(match_date, 'YYYY-MM-DD') as match_date,
-             score_a, score_b, sort_order, result_posted_at
+             score_a, score_b, sort_order, best_of, result_entered_by, result_posted_at
       from ierne_snooker.fixtures
       where competition_id = ${compId}
       order by sort_order asc, round_label asc
@@ -697,6 +801,8 @@ async function handleGetFixtures(req: Request): Promise<Response> {
       scoreA: r.score_a,
       scoreB: r.score_b,
       sortOrder: r.sort_order,
+      bestOf: r.best_of ?? 3,
+      resultEnteredBy: r.result_entered_by ?? "",
       playerAId: r.player_a_id,
       playerBId: r.player_b_id,
       resultPostedAt: r.result_posted_at
@@ -965,6 +1071,11 @@ const PLAYER_RESULT_ACTIONS = new Set([
   "updateFixtureResult",
   "upsertBreak",
   "deleteBreak",
+  "getResultSlip",
+  "uploadResultSlip",
+  "commitResultSlip",
+  "discardResultSlipSession",
+  "removeResultSlip",
 ]);
 
 function getAdminSecret(): string {
@@ -1321,6 +1432,14 @@ function parseNullableScore(raw: unknown): number | null {
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
+/** Odd match length 1–9. Empty means the default of 3. Invalid returns null. */
+function parseBestOf(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === "") return 3;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1 || n > 9 || Math.trunc(n) % 2 === 0) return null;
+  return Math.trunc(n);
+}
+
 async function handleUpsertFixture(data: Record<string, unknown>): Promise<Response> {
   const fixtureId = data.fixtureId ? String(data.fixtureId).trim() : "";
   const compId = String(data.compId ?? "").trim();
@@ -1337,6 +1456,7 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   const sortOrder = sortOrderRaw !== undefined && sortOrderRaw !== ""
     ? Number(sortOrderRaw)
     : 0;
+  const bestOf = parseBestOf(data.bestOf);
 
   const scoreA = parseNullableScore(data.scoreA);
   const scoreB = parseNullableScore(data.scoreB);
@@ -1358,6 +1478,7 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   if (stage === "group" && !groupId) return errorResponse("groupId required for group stage");
   if (playerAId === playerBId) return errorResponse("Players must be different");
   if (!Number.isFinite(sortOrder)) return errorResponse("sortOrder must be a number");
+  if (bestOf === null) return errorResponse("bestOf must be an odd number from 1 to 9");
 
   const sql = db();
   await ensureWinnerOfPlayers(sql, playerAId, playerBId);
@@ -1378,6 +1499,7 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
         score_a = ${sa},
         score_b = ${sb},
         sort_order = ${so},
+        best_of = ${bestOf},
         result_posted_at = case
           when ${sa !== null && sb !== null} then coalesce(result_posted_at, now())
           when ${sa === null && sb === null} then null
@@ -1392,10 +1514,10 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   await sql`
     insert into ierne_snooker.fixtures (
       competition_id, group_id, stage, round_label,
-      player_a_id, player_b_id, match_date, score_a, score_b, sort_order, result_posted_at
+      player_a_id, player_b_id, match_date, score_a, score_b, sort_order, best_of, result_posted_at
     ) values (
       ${compId}, ${groupId}, ${stage}, ${roundLabel},
-      ${playerAId}, ${playerBId}, ${matchDate}, ${sa}, ${sb}, ${so},
+      ${playerAId}, ${playerBId}, ${matchDate}, ${sa}, ${sb}, ${so}, ${bestOf},
       case
         when ${sa !== null && sb !== null} then now()
         else null
@@ -1412,6 +1534,7 @@ async function requireResultEditor(
   admin: boolean;
   playerAId: string;
   playerBId: string;
+  editorPlayerId: string | null;
 }> {
   const sql = db();
   const rows = await sql<{
@@ -1429,7 +1552,12 @@ async function requireResultEditor(
 
   const adminToken = typeof envelope.adminToken === "string" ? envelope.adminToken.trim() : "";
   if (adminToken && await verifyAdminToken(adminToken)) {
-    return { admin: true, playerAId: fixture.player_a_id, playerBId: fixture.player_b_id };
+    return {
+      admin: true,
+      playerAId: fixture.player_a_id,
+      playerBId: fixture.player_b_id,
+      editorPlayerId: null,
+    };
   }
 
   const player = await readPlayerSession(sql, envelope.sessionToken);
@@ -1450,7 +1578,28 @@ async function requireResultEditor(
       403,
     );
   }
-  return { admin: false, playerAId: fixture.player_a_id, playerBId: fixture.player_b_id };
+  return {
+    admin: false,
+    playerAId: fixture.player_a_id,
+    playerBId: fixture.player_b_id,
+    editorPlayerId: player.playerId,
+  };
+}
+
+async function resultEnteredByLabel(
+  editorPlayerId: string | null,
+  admin: boolean,
+  sessionToken: string | undefined,
+): Promise<string> {
+  if (admin || !editorPlayerId) return "Admin";
+  const sql = db();
+  const rows = await sql<{ player_name: string }[]>`
+    select player_name from ierne_snooker.players where player_id = ${editorPlayerId}
+  `;
+  const name = String(rows[0]?.player_name || "").trim();
+  if (name) return name;
+  const actor = await readPlayerSession(sql, sessionToken);
+  return actor?.handle || "Player";
 }
 
 async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Response> {
@@ -1480,6 +1629,12 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
 
   const sa = scoreA === null ? null : Math.trunc(scoreA);
   const sb = scoreB === null ? null : Math.trunc(scoreB);
+  const clearing = sa === null && sb === null;
+  const enteredBy = await resultEnteredByLabel(
+    gate.editorPlayerId,
+    gate.admin,
+    envelope.sessionToken,
+  );
   const sql = db();
   if (hasMatchDate) {
     await sql`
@@ -1487,6 +1642,7 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
       set score_a = ${sa},
           score_b = ${sb},
           match_date = ${matchDateVal},
+          result_entered_by = ${enteredBy},
           result_posted_at = case
             when ${sa !== null && sb !== null} then coalesce(result_posted_at, now())
             when ${sa === null && sb === null} then null
@@ -1500,6 +1656,7 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
       update ierne_snooker.fixtures
       set score_a = ${sa},
           score_b = ${sb},
+          result_entered_by = ${enteredBy},
           result_posted_at = case
             when ${sa !== null && sb !== null} then coalesce(result_posted_at, now())
             when ${sa === null && sb === null} then null
@@ -1509,6 +1666,7 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
       where fixture_id = ${fixtureId}::uuid
     `;
   }
+  if (clearing) await clearFixtureResultSlip(fixtureId);
   return jsonResponse({ success: true });
 }
 
@@ -1574,7 +1732,113 @@ async function handleDeleteFixture(data: Record<string, unknown>): Promise<Respo
   const fixtureId = String(data.fixtureId ?? "").trim();
   if (!fixtureId) return errorResponse("fixtureId required");
   const sql = db();
+  const rows = await sql<{ result_slip_path: string | null }[]>`
+    select result_slip_path from ierne_snooker.fixtures where fixture_id = ${fixtureId}::uuid
+  `;
   await sql`delete from ierne_snooker.fixtures where fixture_id = ${fixtureId}::uuid`;
+  const dbPath = rows[0]?.result_slip_path || null;
+  const paths = [resultSlipPendingPath(fixtureId), resultSlipCommittedPath(fixtureId)];
+  if (dbPath) paths.push(dbPath);
+  await deleteSlipPaths(paths);
+  return jsonResponse({ success: true });
+}
+
+async function handleGetResultSlip(envelope: PostEnvelope): Promise<Response> {
+  const fixtureId = String(envelope.data.fixtureId ?? "").trim();
+  if (!fixtureId) return errorResponse("fixtureId required");
+  const gate = await requireResultEditor(envelope, fixtureId);
+  if (gate instanceof Response) return gate;
+  const sql = db();
+  const rows = await sql<{ result_slip_path: string | null; result_slip_mime: string | null }[]>`
+    select result_slip_path, result_slip_mime
+      from ierne_snooker.fixtures
+     where fixture_id = ${fixtureId}::uuid
+  `;
+  if (!rows.length) return errorResponse("Fixture not found", 404);
+  const path = rows[0]!.result_slip_path;
+  if (!path) {
+    return jsonResponse({ success: true, hasImage: false, imageUrl: null, mimeType: null });
+  }
+  const imageUrl = await getSignedSlipUrl(path);
+  return jsonResponse({
+    success: true,
+    hasImage: true,
+    imageUrl,
+    mimeType: rows[0]!.result_slip_mime || "image/jpeg",
+  });
+}
+
+async function handleUploadResultSlip(envelope: PostEnvelope): Promise<Response> {
+  const fixtureId = String(envelope.data.fixtureId ?? "").trim();
+  if (!fixtureId) return errorResponse("fixtureId required");
+  const gate = await requireResultEditor(envelope, fixtureId);
+  if (gate instanceof Response) return gate;
+  const payload = decodeImagePayload(
+    envelope.data.base64 ?? envelope.data.imageBase64,
+    envelope.data.mimeType ?? envelope.data.imageMimeType,
+  );
+  if (!payload) return errorResponse("Image payload required");
+  const path = resultSlipPendingPath(fixtureId);
+  await uploadSlipBytes(path, payload.bytes, payload.mime);
+  const imageUrl = await getSignedSlipUrl(path);
+  return jsonResponse({
+    success: true,
+    pending: true,
+    path,
+    mimeType: payload.mime,
+    imageUrl,
+  });
+}
+
+async function handleCommitResultSlip(envelope: PostEnvelope): Promise<Response> {
+  const fixtureId = String(envelope.data.fixtureId ?? "").trim();
+  if (!fixtureId) return errorResponse("fixtureId required");
+  const gate = await requireResultEditor(envelope, fixtureId);
+  if (gate instanceof Response) return gate;
+  const pending = resultSlipPendingPath(fixtureId);
+  const committed = resultSlipCommittedPath(fixtureId);
+  const sb = storageClient();
+  const sql = db();
+  const { data: blob, error: dlErr } = await sb.storage.from(RESULT_SLIP_BUCKET).download(pending);
+  if (dlErr || !blob) {
+    return jsonResponse({ success: true, committed: false });
+  }
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const mime = blob.type || "image/jpeg";
+  await uploadSlipBytes(committed, bytes, mime);
+  await deleteSlipPaths([pending]);
+  await sql`
+    update ierne_snooker.fixtures
+       set result_slip_path = ${committed},
+           result_slip_mime = ${mime},
+           updated_at = now()
+     where fixture_id = ${fixtureId}::uuid
+  `;
+  const imageUrl = await getSignedSlipUrl(committed);
+  return jsonResponse({
+    success: true,
+    committed: true,
+    path: committed,
+    mimeType: mime,
+    imageUrl,
+  });
+}
+
+async function handleDiscardResultSlipSession(envelope: PostEnvelope): Promise<Response> {
+  const fixtureId = String(envelope.data.fixtureId ?? "").trim();
+  if (!fixtureId) return errorResponse("fixtureId required");
+  const gate = await requireResultEditor(envelope, fixtureId);
+  if (gate instanceof Response) return gate;
+  await deleteSlipPaths([resultSlipPendingPath(fixtureId)]);
+  return jsonResponse({ success: true });
+}
+
+async function handleRemoveResultSlip(envelope: PostEnvelope): Promise<Response> {
+  const fixtureId = String(envelope.data.fixtureId ?? "").trim();
+  if (!fixtureId) return errorResponse("fixtureId required");
+  const gate = await requireResultEditor(envelope, fixtureId);
+  if (gate instanceof Response) return gate;
+  await clearFixtureResultSlip(fixtureId);
   return jsonResponse({ success: true });
 }
 
@@ -1683,6 +1947,11 @@ async function dispatchPost(envelope: PostEnvelope, req: Request): Promise<Respo
       case "updateFixtureResult": return handleUpdateFixtureResult(envelope);
       case "upsertBreak": return handleUpsertBreak(envelope);
       case "deleteBreak": return handleDeleteBreak(envelope);
+      case "getResultSlip": return handleGetResultSlip(envelope);
+      case "uploadResultSlip": return handleUploadResultSlip(envelope);
+      case "commitResultSlip": return handleCommitResultSlip(envelope);
+      case "discardResultSlipSession": return handleDiscardResultSlipSession(envelope);
+      case "removeResultSlip": return handleRemoveResultSlip(envelope);
       default: return errorResponse(`Unknown action: ${envelope.action}`, 400);
     }
   }

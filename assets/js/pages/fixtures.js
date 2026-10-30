@@ -12,11 +12,25 @@ var FixturesPage = {
     PF: 'Plate Final',
   },
 
-  /** Frames in a match (one rack icon per frame per player; each frame awarded once). */
-  FRAME_RACK_COUNT: 3,
+  /** Default match length when a fixture has no bestOf (odd 1–9). */
+  DEFAULT_BEST_OF: 3,
+  _currentBestOf: 3,
   _loadedBreakIds: [],
-  /** Per-frame winner for current dialog: index 0..2 → null | 'a' | 'b' */
-  _matchFrameWinners: [],
+  _handicapHistoryByPlayer: null,
+  _handicapsLoadPromise: null,
+  _slipPendingUploaded: false,
+  _slipHasCommitted: false,
+  _slipSaveSucceeded: false,
+  _slipSuppressDiscardOnClose: false,
+  _resultSlipUploadInited: false,
+  /** Per-player frame scores in the result dialog. */
+  _playerScores: { a: 0, b: 0 },
+  /** True when the dialog was opened for a fixture that already had a result. */
+  _dialogOpenedWithResult: false,
+  CLEAR_RESULT_CONFIRM_MSG:
+    'Remove this result from the database?\n\nFrames are 0–0, so the recorded score will be cleared and this fixture will show as having no result. Any breaks already saved for this match will be deleted.',
+  CLEAR_RESULT_INLINE_MSG:
+    'Frames are 0–0 — saving will remove this result from the database and delete any breaks already saved for this match.',
   /** A player may edit their own match until 24 hours after the result is first posted. */
   RESULT_EDIT_MS: 24 * 60 * 60 * 1000,
   _openResultPostedAt: '',
@@ -42,6 +56,409 @@ var FixturesPage = {
     var posted = new Date(resultPostedAt).getTime();
     if (isNaN(posted)) return true;
     return Date.now() < posted + this.RESULT_EDIT_MS;
+  },
+
+  normalizeBestOf: function (raw) {
+    var n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 9 || n % 2 === 0) return this.DEFAULT_BEST_OF;
+    return n;
+  },
+
+  frameCount: function () {
+    return this.normalizeBestOf(this._currentBestOf);
+  },
+
+  framesToWin: function () {
+    return Math.ceil(this.frameCount() / 2);
+  },
+
+  initPlayerScores: function () {
+    this._playerScores = { a: 0, b: 0 };
+  },
+
+  playerScore: function (side) {
+    return this._playerScores[side] || 0;
+  },
+
+  adjustPlayerScore: function (side, delta) {
+    if (side !== 'a' && side !== 'b') return;
+    var framesToWin = this.framesToWin();
+    var myScore = this.playerScore(side);
+    var next = myScore + delta;
+    if (next < 0 || next > framesToWin) return;
+    if (delta > 0 && !this.canIncrementScore(side)) return;
+    this._playerScores[side] = next;
+    this.refreshMatchFrameUI();
+  },
+
+  canIncrementScore: function (side) {
+    var framesToWin = this.framesToWin();
+    var myScore = this.playerScore(side);
+    var total = this.playerScore('a') + this.playerScore('b');
+    if (myScore >= framesToWin) return false;
+    if (total + 1 > this.frameCount()) return false;
+    return true;
+  },
+
+  formatEnteredByLabel: function (enteredBy) {
+    var by = String(enteredBy || '').trim();
+    if (!by) return '';
+    return 'Entered by ' + by;
+  },
+
+  updateDialogEnteredBy: function (enteredBy) {
+    var el = document.getElementById('fixture-result-entered-by');
+    if (!el) return;
+    var text = this.formatEnteredByLabel(enteredBy);
+    el.textContent = text;
+    el.hidden = !text;
+  },
+
+  ensureHandicapsLoaded: function () {
+    var self = this;
+    if (this._handicapHistoryByPlayer) {
+      return Promise.resolve(this._handicapHistoryByPlayer);
+    }
+    if (this._handicapsLoadPromise) return this._handicapsLoadPromise;
+    this._handicapsLoadPromise = ApiClient.get({ action: 'getHandicaps' })
+      .then(function (r) {
+        var map = {};
+        (r.handicaps || []).forEach(function (h) {
+          var pid = String(h.playerId || '').trim();
+          if (!pid) return;
+          if (!map[pid]) map[pid] = [];
+          map[pid].push({
+            date: String(h['Handicap Date'] || '').trim(),
+            handicap: Number(h['Handicap']),
+          });
+        });
+        Object.keys(map).forEach(function (pid) {
+          map[pid].sort(function (a, b) {
+            return String(b.date).localeCompare(String(a.date));
+          });
+        });
+        self._handicapHistoryByPlayer = map;
+        return map;
+      })
+      .catch(function () {
+        self._handicapHistoryByPlayer = {};
+        return self._handicapHistoryByPlayer;
+      });
+    return this._handicapsLoadPromise;
+  },
+
+  handicapOnDate: function (playerId, matchDate) {
+    var pid = String(playerId || '').trim();
+    if (!pid) return null;
+    if (
+      typeof KnockoutRounds !== 'undefined' &&
+      KnockoutRounds.isWinnerOfPlayerId &&
+      KnockoutRounds.isWinnerOfPlayerId(pid)
+    ) {
+      return null;
+    }
+    var rows = (this._handicapHistoryByPlayer && this._handicapHistoryByPlayer[pid]) || [];
+    if (!rows.length) return null;
+    var md = String(matchDate || '').trim();
+    if (!md) {
+      var latest = rows[0];
+      return latest && Number.isFinite(latest.handicap) ? latest.handicap : null;
+    }
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      if (!rows[i].date || rows[i].date <= md) {
+        return Number.isFinite(rows[i].handicap) ? rows[i].handicap : null;
+      }
+    }
+    return null;
+  },
+
+  formatHandicapBrief: function (value) {
+    if (value == null || value === '' || !Number.isFinite(Number(value))) return 'Handicap: n/a';
+    return 'Handicap: ' + Math.trunc(Number(value));
+  },
+
+  formatHandicapParen: function (value) {
+    if (typeof Formatters !== 'undefined' && Formatters.formatHandicapParenValue) {
+      return Formatters.formatHandicapParenValue(value);
+    }
+    if (value == null || value === '') return '';
+    var n = Number(value);
+    if (!Number.isFinite(n)) return '';
+    n = Math.trunc(n);
+    if (n === 0) return '0';
+    if (n > 0) return '+' + n;
+    return String(n);
+  },
+
+  playerLabelWithHandicap: function (name, playerId, matchDate) {
+    var base = String(name == null ? '' : name);
+    var hc = this.handicapOnDate(playerId, matchDate);
+    var paren = this.formatHandicapParen(hc);
+    if (!paren) return base;
+    return base + ' (' + paren + ')';
+  },
+
+  refreshResultDialogPlayerLabels: function () {
+    var nameA =
+      (document.getElementById('fixture-result-label-a') &&
+        document.getElementById('fixture-result-label-a').getAttribute('data-base-name')) ||
+      '';
+    var nameB =
+      (document.getElementById('fixture-result-label-b') &&
+        document.getElementById('fixture-result-label-b').getAttribute('data-base-name')) ||
+      '';
+    var pidA = (document.getElementById('fixture-result-player-a-id') || {}).value || '';
+    var pidB = (document.getElementById('fixture-result-player-b-id') || {}).value || '';
+    var matchDate = this.resultDialogMatchDateISO();
+    var labelA = document.getElementById('fixture-result-label-a');
+    var labelB = document.getElementById('fixture-result-label-b');
+    if (labelA) labelA.textContent = this.playerLabelWithHandicap(nameA, pidA, matchDate);
+    if (labelB) labelB.textContent = this.playerLabelWithHandicap(nameB, pidB, matchDate);
+  },
+
+  /** Match date from the Enter result dialog as YYYY-MM-DD (empty if invalid or blank). */
+  resultDialogMatchDateISO: function () {
+    var dateEl = document.getElementById('fixture-result-date');
+    var pickerEl = document.getElementById('fixture-result-date-picker');
+    var raw = dateEl ? String(dateEl.value || '').trim() : '';
+    if (raw && typeof Formatters !== 'undefined' && Formatters.parseMatchDateToISO) {
+      return Formatters.parseMatchDateToISO(raw);
+    }
+    if (!raw && pickerEl && pickerEl.value && typeof Formatters !== 'undefined' && Formatters.parseMatchDateToISO) {
+      return Formatters.parseMatchDateToISO(pickerEl.value);
+    }
+    return '';
+  },
+
+  /** Set the dialog date control from an ISO date, or today when blank. */
+  setResultDialogMatchDate: function (isoOrEmpty) {
+    var dateEl = document.getElementById('fixture-result-date');
+    var pickerEl = document.getElementById('fixture-result-date-picker');
+    var iso =
+      isoOrEmpty && String(isoOrEmpty).trim()
+        ? String(isoOrEmpty).trim()
+        : this.localISODate();
+    if (pickerEl) pickerEl.value = iso;
+    if (!dateEl) return;
+    if (typeof Formatters !== 'undefined' && Formatters.formatMatchDateDisplay) {
+      var display = Formatters.formatMatchDateDisplay(iso);
+      dateEl.value = display || iso;
+      return;
+    }
+    dateEl.value = iso;
+  },
+
+  /** Normalize a typed date to "31 Jan 2026" when valid, and refresh handicap labels. */
+  normalizeResultDialogMatchDate: function () {
+    var dateEl = document.getElementById('fixture-result-date');
+    var pickerEl = document.getElementById('fixture-result-date-picker');
+    if (!dateEl) return;
+    var iso = this.resultDialogMatchDateISO();
+    if (iso) {
+      if (typeof Formatters !== 'undefined' && Formatters.formatMatchDateDisplay) {
+        dateEl.value = Formatters.formatMatchDateDisplay(iso);
+      }
+      if (pickerEl) pickerEl.value = iso;
+    }
+    this.refreshResultDialogPlayerLabels();
+  },
+
+  /** Apply a date chosen via the calendar button into the display field. */
+  applyResultDialogPickerDate: function () {
+    var pickerEl = document.getElementById('fixture-result-date-picker');
+    if (!pickerEl || !pickerEl.value) return;
+    this.setResultDialogMatchDate(pickerEl.value);
+    this.refreshResultDialogPlayerLabels();
+  },
+
+  setResultDialogPlayerLabels: function (nameA, nameB) {
+    var labelA = document.getElementById('fixture-result-label-a');
+    var labelB = document.getElementById('fixture-result-label-b');
+    if (labelA) labelA.setAttribute('data-base-name', String(nameA == null ? '' : nameA));
+    if (labelB) labelB.setAttribute('data-base-name', String(nameB == null ? '' : nameB));
+    var self = this;
+    if (this._handicapHistoryByPlayer) {
+      this.refreshResultDialogPlayerLabels();
+      return;
+    }
+    if (labelA) labelA.textContent = String(nameA == null ? '' : nameA);
+    if (labelB) labelB.textContent = String(nameB == null ? '' : nameB);
+    this.ensureHandicapsLoaded().then(function () {
+      self.refreshResultDialogPlayerLabels();
+    });
+  },
+
+  showPlayerHandicapBrief: function (anchorEl, playerId, matchDate) {
+    var self = this;
+    function show() {
+      var text = self.formatHandicapBrief(self.handicapOnDate(playerId, matchDate));
+      if (typeof window.BriefMessage !== 'undefined' && window.BriefMessage.show) {
+        window.BriefMessage.show(text, anchorEl, { durationMs: 1200 });
+      }
+    }
+    if (this._handicapHistoryByPlayer) {
+      show();
+      return;
+    }
+    this.ensureHandicapsLoaded().then(show, show);
+  },
+
+  makePlayerNameEl: function (name, playerId, matchDate, align) {
+    var self = this;
+    var winnerOf =
+      typeof KnockoutRounds !== 'undefined' &&
+      KnockoutRounds.isWinnerOfPlayerId &&
+      KnockoutRounds.isWinnerOfPlayerId(playerId);
+    var el = document.createElement('span');
+    el.className = 'fixture-player-name';
+    el.textContent = name;
+    el.style.flex = '1';
+    el.style.textAlign = align === 'left' ? 'left' : 'right';
+    if (winnerOf) return el;
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', 'Show handicap for ' + name);
+    function onActivate(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      self.showPlayerHandicapBrief(el, playerId, matchDate);
+    }
+    el.addEventListener('click', onActivate);
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') onActivate(e);
+    });
+    return el;
+  },
+
+  initResultSlipUpload: function () {
+    if (this._resultSlipUploadInited) return;
+    var btn = document.getElementById('fixture-result-slip-btn');
+    if (!btn || typeof ResultSlipUpload === 'undefined') return;
+    var self = this;
+    ResultSlipUpload.init(btn, {
+      onPhotoSelected: function (base64, mimeType, previewUrl) {
+        self.handleResultSlipPhotoSelected(base64, mimeType, previewUrl);
+      },
+      onRemoveRequested: function () {
+        self.handleResultSlipRemoveRequested();
+      },
+    });
+    this._resultSlipUploadInited = true;
+  },
+
+  resetResultSlipSession: function () {
+    this._slipPendingUploaded = false;
+    this._slipHasCommitted = false;
+    this._slipSaveSucceeded = false;
+    if (typeof ResultSlipUpload !== 'undefined') {
+      ResultSlipUpload.clearImage();
+      ResultSlipUpload.setBusy(false);
+    }
+  },
+
+  loadResultSlipForDialog: function (fixtureId) {
+    var self = this;
+    if (!fixtureId || typeof ApiClient === 'undefined') return Promise.resolve();
+    return ApiClient.post('getResultSlip', { fixtureId: fixtureId })
+      .then(function (res) {
+        if (res && res.hasImage && res.imageUrl && typeof ResultSlipUpload !== 'undefined') {
+          self._slipHasCommitted = true;
+          ResultSlipUpload.setImage(res.imageUrl);
+        }
+      })
+      .catch(function (err) {
+        console.warn('Could not load result slip:', err);
+      });
+  },
+
+  slipBrief: function (text, anchor) {
+    if (typeof window.BriefMessage !== 'undefined' && window.BriefMessage.show) {
+      window.BriefMessage.show(text, anchor, { durationMs: 1200 });
+    }
+  },
+
+  handleResultSlipPhotoSelected: function (base64, mimeType) {
+    var fixtureId = (document.getElementById('fixture-result-fixture-id') || {}).value || '';
+    var btn = document.getElementById('fixture-result-slip-btn');
+    if (!fixtureId) {
+      this.slipBrief('Missing fixture', btn);
+      return;
+    }
+    var self = this;
+    if (typeof ResultSlipUpload !== 'undefined') ResultSlipUpload.setBusy(true);
+    ApiClient.post('uploadResultSlip', {
+      fixtureId: fixtureId,
+      base64: base64,
+      mimeType: mimeType || 'image/jpeg',
+    })
+      .then(function (res) {
+        self._slipPendingUploaded = true;
+        var url = res && res.imageUrl;
+        if (typeof ResultSlipUpload !== 'undefined') {
+          if (url) ResultSlipUpload.setImage(url);
+          ResultSlipUpload.setBusy(false);
+        }
+        self.slipBrief('Photo uploaded', btn);
+      })
+      .catch(function (err) {
+        if (typeof ResultSlipUpload !== 'undefined') {
+          if (self._slipHasCommitted) self.loadResultSlipForDialog(fixtureId);
+          else ResultSlipUpload.clearImage();
+          ResultSlipUpload.setBusy(false);
+        }
+        self.slipBrief((err && err.message) || 'Upload failed', btn);
+      });
+  },
+
+  handleResultSlipRemoveRequested: function () {
+    var fixtureId = (document.getElementById('fixture-result-fixture-id') || {}).value || '';
+    var btn = document.getElementById('fixture-result-slip-btn');
+    var self = this;
+    if (!fixtureId) return;
+    if (typeof ResultSlipUpload !== 'undefined') ResultSlipUpload.setBusy(true);
+    var action = this._slipHasCommitted ? 'removeResultSlip' : 'discardResultSlipSession';
+    ApiClient.post(action, { fixtureId: fixtureId })
+      .then(function () {
+        self._slipPendingUploaded = false;
+        self._slipHasCommitted = false;
+        if (typeof ResultSlipUpload !== 'undefined') {
+          ResultSlipUpload.clearImage();
+          ResultSlipUpload.setBusy(false);
+        }
+        self.slipBrief('Photo removed', btn);
+      })
+      .catch(function (err) {
+        if (typeof ResultSlipUpload !== 'undefined') ResultSlipUpload.setBusy(false);
+        self.slipBrief((err && err.message) || 'Could not remove photo', btn);
+      });
+  },
+
+  discardResultSlipSessionIfNeeded: function () {
+    if (!this._slipPendingUploaded) return Promise.resolve();
+    var fixtureId = (document.getElementById('fixture-result-fixture-id') || {}).value || '';
+    if (!fixtureId || typeof ApiClient === 'undefined') {
+      this._slipPendingUploaded = false;
+      return Promise.resolve();
+    }
+    var self = this;
+    return ApiClient.post('discardResultSlipSession', { fixtureId: fixtureId })
+      .then(function () {
+        self._slipPendingUploaded = false;
+      })
+      .catch(function (err) {
+        console.warn('Could not discard pending result slip:', err);
+        self._slipPendingUploaded = false;
+      });
+  },
+
+  commitResultSlipIfNeeded: function (fixtureId) {
+    if (!this._slipPendingUploaded || !fixtureId) return Promise.resolve();
+    var self = this;
+    return ApiClient.post('commitResultSlip', { fixtureId: fixtureId }).then(function () {
+      self._slipPendingUploaded = false;
+      self._slipHasCommitted = true;
+    });
   },
 
   localISODate: function () {
@@ -86,6 +503,7 @@ var FixturesPage = {
   },
 
   selectedLeague: function () {
+    if (typeof LeagueGroupFilter !== 'undefined') return LeagueGroupFilter.selected();
     var el = document.querySelector('input[name="league"]:checked');
     return el ? el.value : 'All';
   },
@@ -114,22 +532,77 @@ var FixturesPage = {
         NavCompetition.syncLeagueFiltersFromSession();
       }
       window.addEventListener(CurrentCompetition.EVENT_NAME, function () {
-        self.render().catch(function (e) {
+        self.refreshFilterAndRender().catch(function (e) {
           console.error(e);
         });
       });
     }
 
-    this.bindLeagueFilter();
+    if (typeof LeagueGroupFilter !== 'undefined') {
+      LeagueGroupFilter.bindChange(function () {
+        self.render().catch(function (e) {
+          console.error(e);
+        });
+      });
+    }
     this.bindResultDialog();
+    this.ensureHandicapsLoaded();
 
     if (typeof CurrentCompetition !== 'undefined') {
       await CurrentCompetition.whenReady(function () {
-        return self.render();
+        return self.refreshFilterAndRender();
       });
     } else {
       await this.render();
     }
+  },
+
+  unplayedLeagueFixtures: function (fixtures) {
+    return (fixtures || []).filter(function (r) {
+      var notPlayed = !r['Result'] || String(r['Result']).trim() === '';
+      var stage = String(r.Stage || '').toLowerCase();
+      if (stage === 'knockout') return false;
+      return notPlayed && r['Game Week'] && r['Player A'] && r['Player B'];
+    });
+  },
+
+  knockoutFixturesWithParticipants: function (fixtures) {
+    return (fixtures || []).filter(function (r) {
+      return r['Game Week'] && r['Player A'] && r['Player B'];
+    });
+  },
+
+  /**
+   * When the league has no unplayed fixtures but a linked knockout already has
+   * matches, show that knockout as the now-showing competition.
+   * @returns {Promise<boolean>}
+   */
+  maybePromoteToAssociatedKnockout: async function () {
+    if (typeof CurrentCompetition === 'undefined') return false;
+    var comp = CurrentCompetition.get();
+    if (!comp || CurrentCompetition.isKnockout()) return false;
+    var ko = CurrentCompetition.findAssociatedKnockout(comp);
+    if (!ko) return false;
+    var leagueId = CurrentCompetition.getCompId();
+    var koId = ko.compId;
+    if (!leagueId || !koId) return false;
+    try {
+      var leagueResult = await ApiClient.get({ action: 'getFixtures', comp: leagueId });
+      if (this.unplayedLeagueFixtures(leagueResult.fixtures || []).length > 0) return false;
+      var koResult = await ApiClient.get({ action: 'getFixtures', comp: koId });
+      if (this.knockoutFixturesWithParticipants(koResult.fixtures || []).length === 0) return false;
+      return CurrentCompetition.setCompId(koId, { allowKnockoutStage: true });
+    } catch (e) {
+      console.error('maybePromoteToAssociatedKnockout failed:', e);
+      return false;
+    }
+  },
+
+  refreshFilterAndRender: async function () {
+    var promoted = await this.maybePromoteToAssociatedKnockout();
+    if (promoted) return;
+    if (typeof LeagueGroupFilter !== 'undefined') await LeagueGroupFilter.sync();
+    return this.render();
   },
 
   bindResultDialog: function () {
@@ -148,8 +621,10 @@ var FixturesPage = {
         var host = rack.closest('[data-frame-racks-for]');
         if (!host) return;
         var side = host.getAttribute('data-frame-racks-for');
-        var idx = parseInt(rack.getAttribute('data-rack-index'), 10);
-        if (side && !isNaN(idx)) self.toggleMatchFrame(idx, side);
+        var action = rack.getAttribute('data-rack-action');
+        if (side && (action === 'inc' || action === 'dec')) {
+          self.adjustPlayerScore(side, action === 'inc' ? 1 : -1);
+        }
       });
     }
 
@@ -159,6 +634,14 @@ var FixturesPage = {
         dlg.close();
       });
     }
+    dlg.addEventListener('close', function () {
+      if (self._slipSuppressDiscardOnClose) return;
+      if (self._slipSaveSucceeded) {
+        self._slipSaveSucceeded = false;
+        return;
+      }
+      self.discardResultSlipSessionIfNeeded();
+    });
 
     var form = document.getElementById('fixture-result-form');
     if (!form) return;
@@ -173,11 +656,69 @@ var FixturesPage = {
         }
       });
     });
+    var dateEl = document.getElementById('fixture-result-date');
+    if (dateEl && !dateEl.getAttribute('data-hc-label-bound')) {
+      dateEl.setAttribute('data-hc-label-bound', '1');
+      dateEl.addEventListener('change', function () {
+        self.normalizeResultDialogMatchDate();
+      });
+      dateEl.addEventListener('blur', function () {
+        self.normalizeResultDialogMatchDate();
+      });
+    }
+    var pickerEl = document.getElementById('fixture-result-date-picker');
+    if (pickerEl && !pickerEl.getAttribute('data-hc-label-bound')) {
+      pickerEl.setAttribute('data-hc-label-bound', '1');
+      pickerEl.addEventListener('change', function () {
+        self.applyResultDialogPickerDate();
+      });
+      pickerEl.addEventListener('input', function () {
+        self.applyResultDialogPickerDate();
+      });
+    }
+  },
+
+  /** window.confirm() can render behind an open modal dialog; close first, then restore if cancelled. */
+  confirmClearingResult: function () {
+    var dlg = document.getElementById('fixture-result-dialog');
+    var dialogWasOpen = !!(dlg && dlg.open);
+    this._slipSuppressDiscardOnClose = true;
+    if (dialogWasOpen && typeof dlg.close === 'function') {
+      dlg.close();
+    }
+    var confirmed = window.confirm(this.CLEAR_RESULT_CONFIRM_MSG);
+    if (!confirmed && dialogWasOpen && dlg && typeof dlg.showModal === 'function') {
+      dlg.showModal();
+      var self = this;
+      window.setTimeout(function () {
+        self.focusResultDialogRoot();
+      }, 0);
+    }
+    this._slipSuppressDiscardOnClose = false;
+    return confirmed;
+  },
+
+  updateClearingResultWarning: function (scoreA, scoreB) {
+    var msg = document.getElementById('fixture-result-msg');
+    if (!msg) return;
+    if (this._dialogOpenedWithResult && scoreA === 0 && scoreB === 0) {
+      msg.textContent = this.CLEAR_RESULT_INLINE_MSG;
+      msg.hidden = false;
+      msg.classList.remove('msg--success');
+      msg.classList.add('msg--warning');
+      return;
+    }
+    if (msg.classList.contains('msg--warning') && !msg.classList.contains('msg--success')) {
+      msg.textContent = '';
+      msg.hidden = true;
+      msg.classList.remove('msg--warning');
+    }
   },
 
   createFrameRackSvg: function () {
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 56 50');
+    svg.setAttribute('viewBox', '10 5.5 36 36');
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svg.setAttribute('class', 'fixture-frame-rack-svg');
     svg.setAttribute('aria-hidden', 'true');
     var ballR = 3.35;
@@ -207,81 +748,47 @@ var FixturesPage = {
 
   ensureFrameRacksBuilt: function () {
     var self = this;
-    var countStr = String(self.FRAME_RACK_COUNT);
     ['a', 'b'].forEach(function (side) {
       var host = document.getElementById('fixture-frame-racks-' + side);
       if (!host) return;
-      if (host.getAttribute('data-racks-built-count') === countStr) return;
+      if (host.getAttribute('data-racks-built') === 'controls-h1') return;
+      var num = document.getElementById('fixture-result-score-' + side + '-display');
       host.innerHTML = '';
-      var rowsWrap = document.createElement('div');
-      rowsWrap.className = 'fixture-frame-racks-rows';
-      var row = document.createElement('div');
-      row.className = 'fixture-frame-racks-row';
-      var i;
-      for (i = 0; i < self.FRAME_RACK_COUNT; i++) {
+
+      function makeBtn(action, inverted, label) {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'fixture-frame-rack';
-        btn.setAttribute('data-rack-index', String(i));
-        btn.setAttribute(
-          'aria-label',
-          'Frame ' + (i + 1) + ' of ' + self.FRAME_RACK_COUNT + ', assign to this player'
-        );
-        btn.setAttribute('aria-pressed', 'false');
-        btn.appendChild(self.createFrameRackSvg());
-        row.appendChild(btn);
+        if (inverted) btn.classList.add('fixture-frame-rack--inverted');
+        btn.setAttribute('data-rack-action', action);
+        btn.setAttribute('aria-label', label);
+        var icon = document.createElement('span');
+        icon.className = 'fixture-frame-rack-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.appendChild(self.createFrameRackSvg());
+        btn.appendChild(icon);
+        return btn;
       }
-      rowsWrap.appendChild(row);
-      host.appendChild(rowsWrap);
-      host.setAttribute('data-racks-built-count', countStr);
+
+      host.appendChild(makeBtn('dec', true, 'Decrease score'));
+      if (num) host.appendChild(num);
+      host.appendChild(makeBtn('inc', false, 'Increase score'));
+      host.setAttribute('data-racks-built', 'controls-h1');
     });
   },
 
-  toggleMatchFrame: function (frameIndex, side) {
-    var w = this._matchFrameWinners[frameIndex];
-    if (w === side) {
-      this._matchFrameWinners[frameIndex] = null;
-    } else {
-      var maxWins = Math.ceil(this.FRAME_RACK_COUNT / 2);
-      var currentCount = 0;
-      for (var i = 0; i < this.FRAME_RACK_COUNT; i++) {
-        if (this._matchFrameWinners[i] === side) currentCount++;
-      }
-      if (currentCount >= maxWins) return;
-      this._matchFrameWinners[frameIndex] = side;
-    }
-    this.refreshMatchFrameUI();
-  },
-
-  /**
-   * Fill frame winners from aggregate scores (order not stored in DB).
-   * First `scoreA` frames → A, next `scoreB` → B; extras stay unassigned.
-   */
   applyCanonicalFrameAssignment: function (scoreA, scoreB) {
-    var idx = 0;
-    var i;
-    var sa = Math.max(0, Math.min(Math.trunc(scoreA), this.FRAME_RACK_COUNT));
-    var sb = Math.max(0, Math.min(Math.trunc(scoreB), this.FRAME_RACK_COUNT));
-    for (i = 0; i < sa && idx < this.FRAME_RACK_COUNT; i++) {
-      this._matchFrameWinners[idx++] = 'a';
-    }
-    for (i = 0; i < sb && idx < this.FRAME_RACK_COUNT; i++) {
-      this._matchFrameWinners[idx++] = 'b';
-    }
-    while (idx < this.FRAME_RACK_COUNT) {
-      this._matchFrameWinners[idx++] = null;
-    }
+    var cap = this.framesToWin();
+    this._playerScores = {
+      a: Math.max(0, Math.min(Math.trunc(scoreA), cap)),
+      b: Math.max(0, Math.min(Math.trunc(scoreB), cap)),
+    };
   },
 
   refreshMatchFrameUI: function () {
-    var winners = this._matchFrameWinners;
-    var scoreA = 0;
-    var scoreB = 0;
-    var i;
-    for (i = 0; i < this.FRAME_RACK_COUNT; i++) {
-      if (winners[i] === 'a') scoreA++;
-      if (winners[i] === 'b') scoreB++;
-    }
+    var scoreA = this.playerScore('a');
+    var scoreB = this.playerScore('b');
+    var framesToWin = this.framesToWin();
     document.getElementById('fixture-result-score-a').value = String(scoreA);
     document.getElementById('fixture-result-score-b').value = String(scoreB);
     var dispA = document.getElementById('fixture-result-score-a-display');
@@ -300,45 +807,40 @@ var FixturesPage = {
         'fixture-result-player-name--winner',
         'fixture-result-player-name--loser'
       );
-      if (scoreA >= 2) {
+      if (scoreA >= framesToWin) {
         labelA.classList.add('fixture-result-player-name--winner');
         labelB.classList.add('fixture-result-player-name--loser');
-      } else if (scoreB >= 2) {
+      } else if (scoreB >= framesToWin) {
         labelB.classList.add('fixture-result-player-name--winner');
         labelA.classList.add('fixture-result-player-name--loser');
       }
     }
 
     var self = this;
-    var maxWins = Math.ceil(this.FRAME_RACK_COUNT / 2);
-    var sideAtMax = { a: scoreA >= maxWins, b: scoreB >= maxWins };
     ['a', 'b'].forEach(function (side) {
       var host = document.getElementById('fixture-frame-racks-' + side);
       if (!host) return;
+      var myScore = self.playerScore(side);
       host.querySelectorAll('.fixture-frame-rack').forEach(function (rack) {
-        var idx = parseInt(rack.getAttribute('data-rack-index'), 10);
-        var win = winners[idx];
-        var mine = win === side;
-        var lost = win !== null && win !== side;
-        var disable = sideAtMax[side] && !mine;
-        rack.classList.toggle('fixture-frame-rack--on', mine);
-        rack.classList.toggle('fixture-frame-rack--lost', lost);
+        var action = rack.getAttribute('data-rack-action');
+        var disable =
+          action === 'inc' ? !self.canIncrementScore(side) : action === 'dec' ? myScore <= 0 : true;
         rack.disabled = disable;
-        rack.setAttribute('aria-pressed', mine ? 'true' : 'false');
-        rack.setAttribute('aria-label', self.frameRackAriaLabel(idx, win, side));
+        rack.setAttribute('aria-label', self.frameRackAriaLabel(action, side));
       });
     });
+    this.updateClearingResultWarning(scoreA, scoreB);
   },
 
-  frameRackAriaLabel: function (idx, win, side) {
-    var n = idx + 1;
-    if (win === null) {
-      return 'Frame ' + n + ': not awarded — tap to give to this player';
+  frameRackAriaLabel: function (action, side) {
+    var score = this.playerScore(side);
+    if (action === 'inc') {
+      return 'Increase score (currently ' + score + ')';
     }
-    if (win === side) {
-      return 'Frame ' + n + ': awarded to this player — tap to clear';
+    if (action === 'dec') {
+      return 'Decrease score (currently ' + score + ')';
     }
-    return 'Frame ' + n + ': awarded to opponent — tap to give this frame to this player';
+    return 'Adjust score';
   },
 
   focusResultDialogRoot: function () {
@@ -391,6 +893,9 @@ var FixturesPage = {
       var grouped;
       if (isKnockout && typeof KnockoutRounds !== 'undefined') {
         winnersByCode = KnockoutRounds.buildRoundWinnersMap(data);
+        var winnerIdsByCode = KnockoutRounds.buildRoundWinnerIdsMap
+          ? KnockoutRounds.buildRoundWinnerIdsMap(data)
+          : {};
         var koGroup = KnockoutRounds.groupForList(upcoming);
         grouped = { grouped: koGroup.grouped, orderedWeeks: koGroup.orderedKeys };
         sectionLabels = koGroup.labels;
@@ -400,6 +905,7 @@ var FixturesPage = {
       this.renderGroups(container, grouped.grouped, grouped.orderedWeeks, {
         isKnockout: isKnockout,
         winnersByCode: winnersByCode,
+        winnerIdsByCode: typeof winnerIdsByCode !== 'undefined' ? winnerIdsByCode : {},
         sectionLabels: sectionLabels,
       });
     } catch (error) {
@@ -489,9 +995,21 @@ var FixturesPage = {
         div.style.fontSize = '1.05em';
 
         var fid = String(match.fixtureId || '').trim();
+        var slotA = String(match.playerAId || '').trim();
+        var slotB = String(match.playerBId || '').trim();
+        var pidA = slotA;
+        var pidB = slotB;
+        if (
+          isKnockout &&
+          typeof KnockoutRounds !== 'undefined' &&
+          KnockoutRounds.resolvedPlayerId
+        ) {
+          pidA = KnockoutRounds.resolvedPlayerId(match, 'a', options.winnerIdsByCode) || slotA;
+          pidB = KnockoutRounds.resolvedPlayerId(match, 'b', options.winnerIdsByCode) || slotB;
+        }
         div.setAttribute('data-fixture-id', fid);
-        div.setAttribute('data-player-a-id', String(match.playerAId || '').trim());
-        div.setAttribute('data-player-b-id', String(match.playerBId || '').trim());
+        div.setAttribute('data-player-a-id', pidA);
+        div.setAttribute('data-player-b-id', pidB);
         var nameA = self.knockoutPlayerLabel(match, 'a', winnersByCode);
         var nameB = self.knockoutPlayerLabel(match, 'b', winnersByCode);
         if (!isKnockout) {
@@ -502,16 +1020,17 @@ var FixturesPage = {
         div.setAttribute('data-player-b-name', nameB);
         div.setAttribute('data-match-date', match['Match Date'] || '');
         div.setAttribute('data-result-posted-at', match.resultPostedAt || '');
+        div.setAttribute('data-best-of', String(self.normalizeBestOf(match.bestOf)));
+        var enteredBy = String(match.resultEnteredBy || '').trim();
+        if (enteredBy) div.setAttribute('data-result-entered-by', enteredBy);
         var resultReady = self.fixtureResultReady(match, isKnockout, winnersByCode);
         div.setAttribute('data-result-ready', resultReady ? 'true' : 'false');
 
-        var playerA = document.createElement('span');
-        playerA.textContent = nameA;
-        playerA.style.flex = '1';
-        playerA.style.textAlign = 'right';
+        var matchDate = match['Match Date'] || '';
+        var playerA = self.makePlayerNameEl(nameA, pidA, matchDate, 'right');
 
         var center;
-        var canEdit = self.canEditFixture(match.playerAId, match.playerBId, match.resultPostedAt || '');
+        var canEdit = self.canEditFixture(slotA, slotB, match.resultPostedAt || '');
         if (canEdit && fid && resultReady) {
           center = document.createElement('button');
           center.type = 'button';
@@ -537,10 +1056,7 @@ var FixturesPage = {
         }
         center.style.flex = '0 0 auto';
 
-        var playerB = document.createElement('span');
-        playerB.textContent = nameB;
-        playerB.style.flex = '1';
-        playerB.style.textAlign = 'left';
+        var playerB = self.makePlayerNameEl(nameB, pidB, matchDate, 'left');
 
         div.appendChild(playerA);
         div.appendChild(center);
@@ -631,23 +1147,23 @@ var FixturesPage = {
     var nameB = rowEl.getAttribute('data-player-b-name');
     var prevDate = rowEl.getAttribute('data-match-date');
     this._openResultPostedAt = rowEl.getAttribute('data-result-posted-at') || '';
+    this._currentBestOf = this.normalizeBestOf(rowEl.getAttribute('data-best-of'));
     if (!this.canEditFixture(pidA, pidB, this._openResultPostedAt)) return;
 
     document.getElementById('fixture-result-fixture-id').value = fid;
     document.getElementById('fixture-result-player-a-id').value = pidA;
     document.getElementById('fixture-result-player-b-id').value = pidB;
 
-    document.getElementById('fixture-result-label-a').textContent = nameA;
-    document.getElementById('fixture-result-label-b').textContent = nameB;
-
-    var dateEl = document.getElementById('fixture-result-date');
-    dateEl.value = prevDate && String(prevDate).trim() ? prevDate : this.localISODate();
+    this.updateDialogEnteredBy(rowEl.getAttribute('data-result-entered-by'));
+    this.setResultDialogMatchDate(prevDate && String(prevDate).trim() ? prevDate : '');
+    this.setResultDialogPlayerLabels(nameA, nameB);
 
     this.ensureFrameRacksBuilt();
-    var k;
-    this._matchFrameWinners = [];
-    for (k = 0; k < this.FRAME_RACK_COUNT; k++) {
-      this._matchFrameWinners[k] = null;
+    this.initPlayerScores();
+    this._dialogOpenedWithResult = false;
+    var hadResult = rowEl.getAttribute('data-had-result');
+    if (hadResult === '1' || hadResult === 'true') {
+      this._dialogOpenedWithResult = true;
     }
     var preA = rowEl.getAttribute('data-prefill-score-a');
     var preB = rowEl.getAttribute('data-prefill-score-b');
@@ -655,10 +1171,10 @@ var FixturesPage = {
       var na = parseInt(preA, 10);
       var nb = parseInt(preB, 10);
       if (!isNaN(na) && !isNaN(nb) && na >= 0 && nb >= 0) {
+        if (na > 0 || nb > 0) this._dialogOpenedWithResult = true;
         this.applyCanonicalFrameAssignment(na, nb);
       }
     }
-    this.refreshMatchFrameUI();
 
     var racksA = document.getElementById('fixture-frame-racks-a');
     var racksB = document.getElementById('fixture-frame-racks-b');
@@ -671,8 +1187,11 @@ var FixturesPage = {
       msg.hidden = true;
       msg.classList.remove('msg--warning', 'msg--success');
     }
+    this.refreshMatchFrameUI();
 
     this.clearBreakContainers();
+    this.initResultSlipUpload();
+    this.resetResultSlipSession();
 
     var self = this;
     function openDlg() {
@@ -687,9 +1206,12 @@ var FixturesPage = {
       return;
     }
 
-    ApiClient.get({ action: 'getBreaksForFixture', fixtureId: fid })
-      .then(function (res) {
-        self.applyBreaksResponseToDialogFields(res);
+    Promise.all([
+      ApiClient.get({ action: 'getBreaksForFixture', fixtureId: fid }),
+      self.loadResultSlipForDialog(fid),
+    ])
+      .then(function (parts) {
+        self.applyBreaksResponseToDialogFields(parts[0]);
         openDlg();
       })
       .catch(function (err) {
@@ -718,9 +1240,13 @@ var FixturesPage = {
     var pidB = document.getElementById('fixture-result-player-b-id').value;
     var scoreA = parseInt(document.getElementById('fixture-result-score-a').value, 10) || 0;
     var scoreB = parseInt(document.getElementById('fixture-result-score-b').value, 10) || 0;
-    var matchDate = document.getElementById('fixture-result-date').value;
+    var matchDate = this.resultDialogMatchDateISO();
 
     if (!fixtureId) throw new Error('Missing fixture');
+
+    if (!matchDate) {
+      throw new Error('Enter a valid match date (e.g. 31 Jan 2026).');
+    }
 
     if (!this.canEditFixture(pidA, pidB, this._openResultPostedAt || '')) {
       throw new Error(
@@ -729,14 +1255,19 @@ var FixturesPage = {
     }
 
     var clearing = scoreA === 0 && scoreB === 0;
-    if (clearing) {
-      var confirmed = window.confirm(
-        'Remove this result from the database?\n\nFrames are 0–0, so the recorded score will be cleared and this fixture will show as having no result. Any breaks already saved for this match will be deleted.'
-      );
-      if (!confirmed) return;
+    if (clearing && this._dialogOpenedWithResult) {
+      if (!this.confirmClearingResult()) return;
+    } else if (clearing) {
+      if (msg) {
+        msg.textContent = 'There must be a winner!';
+        msg.hidden = false;
+        msg.classList.remove('msg--success');
+        msg.classList.add('msg--warning');
+      }
+      return;
     }
 
-    if (!clearing && scoreA < 2 && scoreB < 2) {
+    if (!clearing && scoreA < this.framesToWin() && scoreB < this.framesToWin()) {
       if (msg) {
         msg.textContent = 'There must be a winner!';
         msg.hidden = false;
@@ -777,7 +1308,14 @@ var FixturesPage = {
           value: row.value,
         });
       }
+      await this.commitResultSlipIfNeeded(fixtureId);
+    } else {
+      this._slipPendingUploaded = false;
+      this._slipHasCommitted = false;
+      if (typeof ResultSlipUpload !== 'undefined') ResultSlipUpload.clearImage();
     }
+
+    this._slipSaveSucceeded = true;
 
     if (msg) {
       msg.textContent = clearing ? 'Result cleared.' : 'Saved.';

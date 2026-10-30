@@ -236,9 +236,12 @@ var CurrentCompetition = (function () {
 
     setCompId: function (compId, options) {
       var opts = options || {};
-      var id = normalizeNowShowingCompId(compId) || compId;
+      var id = opts.allowKnockoutStage
+        ? compId
+        : normalizeNowShowingCompId(compId) || compId;
       var next = findComp(id);
-      if (!next || !next.isCurrent || isLeagueKnockoutStage(next)) return false;
+      if (!next || !next.isCurrent) return false;
+      if (!opts.allowKnockoutStage && isLeagueKnockoutStage(next)) return false;
       if (_current && _current.compId === next.compId) return true;
       _current = next;
       writeStoredCompMeta(next);

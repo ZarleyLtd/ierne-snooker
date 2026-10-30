@@ -38,6 +38,8 @@ var AdminFixturesPage = (function () {
       this.el.koFields = document.getElementById('adminFxKoFields');
       this.el.group = document.getElementById('adminFxGroup');
       this.el.week = document.getElementById('adminFxWeek');
+      this.el.bestOfLeague = document.getElementById('adminFxBestOfLeague');
+      this.el.bestOfKo = document.getElementById('adminFxBestOfKo');
       this.el.round = document.getElementById('adminFxRound');
       this.el.coherenceWarn = document.getElementById('adminFxCoherenceWarn');
       this.el.pa = document.getElementById('adminFxPa');
@@ -589,9 +591,29 @@ var AdminFixturesPage = (function () {
       if (selectedB) pb.value = selectedB;
     },
 
+    normalizeBestOf: function (raw) {
+      var n = parseInt(raw, 10);
+      if (!isFinite(n) || n < 1 || n > 9 || n % 2 === 0) return null;
+      return n;
+    },
+
+    readBestOfFromDialog: function () {
+      var stage = this.el.stage && this.el.stage.value;
+      var el = stage === 'knockout' ? this.el.bestOfKo : this.el.bestOfLeague;
+      return this.normalizeBestOf(el ? el.value : 3);
+    },
+
+    setBestOfFields: function (value) {
+      var n = this.normalizeBestOf(value);
+      var v = n == null ? '3' : String(n);
+      if (this.el.bestOfLeague) this.el.bestOfLeague.value = v;
+      if (this.el.bestOfKo) this.el.bestOfKo.value = v;
+    },
+
     openDialogAdd: function () {
       this._isEditMode = false;
       if (this.el.fixtureId) this.el.fixtureId.value = '';
+      this.setBestOfFields(3);
       this.syncStageOptions();
       if (this.el.stage) {
         this.el.stage.disabled = false;
@@ -635,6 +657,7 @@ var AdminFixturesPage = (function () {
         if (this.el.week) this.el.week.value = String(f['Game Week'] || '');
       }
       if (this.el.deleteBtn) this.el.deleteBtn.hidden = false;
+      this.setBestOfFields(f.bestOf != null ? f.bestOf : 3);
       this.syncStageFields();
       this.fillPlayerSelects(f.playerAId || '', f.playerBId || '');
       this.dialogFlash('', false);
@@ -716,6 +739,13 @@ var AdminFixturesPage = (function () {
         payload.roundLabel = String(weekNum);
         payload.sortOrder = me.groupSortOrder(groupId, weekNum);
       }
+
+      var bestOf = me.readBestOfFromDialog();
+      if (bestOf == null) {
+        me.dialogFlash('Best of must be an odd number from 1 to 9.', true);
+        return;
+      }
+      payload.bestOf = bestOf;
 
       ApiClient.post('upsertFixture', payload)
         .then(function () {

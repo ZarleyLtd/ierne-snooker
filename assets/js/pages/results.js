@@ -40,21 +40,14 @@ var ResultsPage = {
   },
 
   selectedLeague: function () {
+    if (typeof LeagueGroupFilter !== 'undefined') return LeagueGroupFilter.selected();
     var el = document.querySelector('input[name="league"]:checked');
     return el ? el.value : 'All';
   },
 
-  bindLeagueFilter: function () {
-    var self = this;
-    document.querySelectorAll('input[name="league"]').forEach(function (rb) {
-      rb.addEventListener('change', function () {
-        self.highlightSelectedLeague();
-        self.loadResults().catch(function (e) {
-          console.error(e);
-        });
-      });
-    });
-    this.highlightSelectedLeague();
+  refreshAndLoad: async function () {
+    if (typeof LeagueGroupFilter !== 'undefined') await LeagueGroupFilter.sync();
+    return this.loadResults();
   },
 
   init: async function () {
@@ -84,7 +77,7 @@ var ResultsPage = {
           NavCompetition.syncLeagueFiltersFromSession();
         }
         window.addEventListener(CurrentCompetition.EVENT_NAME, function () {
-          self.loadResults().catch(function (e) {
+          self.refreshAndLoad().catch(function (e) {
             console.error(e);
           });
         });
@@ -98,7 +91,13 @@ var ResultsPage = {
         });
       }
 
-      this.bindLeagueFilter();
+      if (typeof LeagueGroupFilter !== 'undefined') {
+        LeagueGroupFilter.bindChange(function () {
+          self.loadResults().catch(function (e) {
+            console.error(e);
+          });
+        });
+      }
     }
 
     if (typeof FixturesPage !== 'undefined') {
@@ -107,7 +106,7 @@ var ResultsPage = {
 
     if (typeof CurrentCompetition !== 'undefined') {
       await CurrentCompetition.whenReady(function () {
-        return self.loadResults();
+        return self.refreshAndLoad();
       });
     } else {
       await this.loadResults();
@@ -161,6 +160,9 @@ var ResultsPage = {
       var groupedWeeks;
       if (isKnockout && typeof KnockoutRounds !== 'undefined') {
         winnersByCode = KnockoutRounds.buildRoundWinnersMap(data);
+        var winnerIdsByCode = KnockoutRounds.buildRoundWinnerIdsMap
+          ? KnockoutRounds.buildRoundWinnerIdsMap(data)
+          : {};
         var koGroup = KnockoutRounds.groupForList(rows);
         groupedWeeks = { grouped: koGroup.grouped, orderedWeeks: koGroup.orderedKeys };
         sectionLabels = koGroup.labels;
@@ -171,6 +173,7 @@ var ResultsPage = {
       this.renderGroups(container, groupedWeeks.grouped, groupedWeeks.orderedWeeks, {
         isKnockout: isKnockout,
         winnersByCode: winnersByCode,
+        winnerIdsByCode: typeof winnerIdsByCode !== 'undefined' ? winnerIdsByCode : {},
         sectionLabels: sectionLabels,
       });
     } catch (error) {
@@ -243,9 +246,21 @@ var ResultsPage = {
         div.style.fontSize = '1.05em';
 
         var fid = String(match.fixtureId || '').trim();
+        var slotA = String(match.playerAId || '').trim();
+        var slotB = String(match.playerBId || '').trim();
+        var pidA = slotA;
+        var pidB = slotB;
+        if (
+          isKnockout &&
+          typeof KnockoutRounds !== 'undefined' &&
+          KnockoutRounds.resolvedPlayerId
+        ) {
+          pidA = KnockoutRounds.resolvedPlayerId(match, 'a', options.winnerIdsByCode) || slotA;
+          pidB = KnockoutRounds.resolvedPlayerId(match, 'b', options.winnerIdsByCode) || slotB;
+        }
         div.setAttribute('data-fixture-id', fid);
-        div.setAttribute('data-player-a-id', String(match.playerAId || '').trim());
-        div.setAttribute('data-player-b-id', String(match.playerBId || '').trim());
+        div.setAttribute('data-player-a-id', pidA);
+        div.setAttribute('data-player-b-id', pidB);
         var nameA = self.knockoutPlayerLabel(match, 'a', winnersByCode);
         var nameB = self.knockoutPlayerLabel(match, 'b', winnersByCode);
         if (!isKnockout) {
@@ -256,6 +271,17 @@ var ResultsPage = {
         div.setAttribute('data-player-b-name', nameB);
         div.setAttribute('data-match-date', match['Match Date'] || '');
         div.setAttribute('data-result-posted-at', match.resultPostedAt || '');
+        div.setAttribute(
+          'data-best-of',
+          String(
+            typeof FixturesPage !== 'undefined' && FixturesPage.normalizeBestOf
+              ? FixturesPage.normalizeBestOf(match.bestOf)
+              : match.bestOf || 3
+          )
+        );
+        var enteredBy = String(match.resultEnteredBy || '').trim();
+        if (enteredBy) div.setAttribute('data-result-entered-by', enteredBy);
+        div.setAttribute('data-had-result', '1');
 
         var sa = match.scoreA != null && match.scoreA !== '' ? Number(match.scoreA) : 0;
         var sb = match.scoreB != null && match.scoreB !== '' ? Number(match.scoreB) : 0;
@@ -269,17 +295,24 @@ var ResultsPage = {
         var aScore = parseInt(parts[0] ? parts[0].trim() : '', 10);
         var bScore = parseInt(parts[1] ? parts[1].trim() : '', 10);
 
-        var playerA = document.createElement('span');
-        playerA.textContent = nameA;
-        playerA.style.flex = '1';
-        playerA.style.textAlign = 'right';
+        var matchDate = match['Match Date'] || '';
+        var playerA =
+          typeof FixturesPage !== 'undefined' && FixturesPage.makePlayerNameEl
+            ? FixturesPage.makePlayerNameEl(nameA, pidA, matchDate, 'right')
+            : (function () {
+                var el = document.createElement('span');
+                el.textContent = nameA;
+                el.style.flex = '1';
+                el.style.textAlign = 'right';
+                return el;
+              })();
         if (!isNaN(aScore) && !isNaN(bScore) && aScore > bScore) playerA.style.fontWeight = 'bold';
 
         var resultEl;
         var canEdit =
           typeof FixturesPage !== 'undefined' &&
           FixturesPage.canEditFixture &&
-          FixturesPage.canEditFixture(match.playerAId, match.playerBId, match.resultPostedAt || '');
+          FixturesPage.canEditFixture(slotA, slotB, match.resultPostedAt || '');
         if (canEdit && fid) {
           resultEl = document.createElement('button');
           resultEl.type = 'button';
@@ -310,16 +343,34 @@ var ResultsPage = {
         resultEl.style.minWidth = '3.5em';
         resultEl.style.textAlign = 'center';
 
-        var playerB = document.createElement('span');
-        playerB.textContent = nameB;
-        playerB.style.flex = '1';
-        playerB.style.textAlign = 'left';
+        var playerB =
+          typeof FixturesPage !== 'undefined' && FixturesPage.makePlayerNameEl
+            ? FixturesPage.makePlayerNameEl(nameB, pidB, matchDate, 'left')
+            : (function () {
+                var el = document.createElement('span');
+                el.textContent = nameB;
+                el.style.flex = '1';
+                el.style.textAlign = 'left';
+                return el;
+              })();
         if (!isNaN(aScore) && !isNaN(bScore) && bScore > aScore) playerB.style.fontWeight = 'bold';
 
+        var wrap = document.createElement('div');
+        wrap.className = 'fixture-row-wrap';
         div.appendChild(playerA);
         div.appendChild(resultEl);
         div.appendChild(playerB);
-        container.appendChild(div);
+        wrap.appendChild(div);
+        if (enteredBy) {
+          var byLine = document.createElement('p');
+          byLine.className = 'fixture-entered-by';
+          byLine.textContent =
+            typeof FixturesPage !== 'undefined' && FixturesPage.formatEnteredByLabel
+              ? FixturesPage.formatEnteredByLabel(enteredBy)
+              : 'Entered by ' + enteredBy;
+          wrap.appendChild(byLine);
+        }
+        container.appendChild(wrap);
       });
     });
   },
