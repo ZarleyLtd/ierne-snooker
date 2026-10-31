@@ -316,6 +316,7 @@ var FixturesPage = {
     el.style.flex = '1';
     el.style.textAlign = align === 'left' ? 'left' : 'right';
     if (winnerOf) return el;
+    el.setAttribute('data-help', 'fixtures.player');
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', '0');
     el.setAttribute('aria-label', 'Show handicap for ' + name);
@@ -761,6 +762,7 @@ var FixturesPage = {
         btn.className = 'fixture-frame-rack';
         if (inverted) btn.classList.add('fixture-frame-rack--inverted');
         btn.setAttribute('data-rack-action', action);
+        btn.setAttribute('data-help', action === 'inc' ? 'result.frameInc' : 'result.frameDec');
         btn.setAttribute('aria-label', label);
         var icon = document.createElement('span');
         icon.className = 'fixture-frame-rack-icon';
@@ -1007,6 +1009,7 @@ var FixturesPage = {
           pidA = KnockoutRounds.resolvedPlayerId(match, 'a', options.winnerIdsByCode) || slotA;
           pidB = KnockoutRounds.resolvedPlayerId(match, 'b', options.winnerIdsByCode) || slotB;
         }
+        div.setAttribute('data-help', 'fixtures.row');
         div.setAttribute('data-fixture-id', fid);
         div.setAttribute('data-player-a-id', pidA);
         div.setAttribute('data-player-b-id', pidB);
@@ -1036,6 +1039,7 @@ var FixturesPage = {
           center.type = 'button';
           center.className = 'fixture-vs-btn';
           center.textContent = 'V';
+          center.setAttribute('data-help', 'fixtures.enterResult');
           center.setAttribute(
             'aria-label',
             'Enter result for ' + nameA + ' vs ' + nameB
@@ -1046,6 +1050,7 @@ var FixturesPage = {
         } else {
           center = document.createElement('span');
           center.className = 'fixture-vs-static';
+          center.setAttribute('data-help', 'fixtures.vs');
           center.textContent = 'V';
           if (self.isAdmin() && fid && !resultReady) {
             center.setAttribute(

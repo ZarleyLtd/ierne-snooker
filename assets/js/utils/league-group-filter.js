@@ -95,6 +95,7 @@ var LeagueGroupFilter = {
   createLabel: function (value, text) {
     var label = document.createElement('label');
     label.className = 'league-label';
+    label.setAttribute('data-help', 'page.group');
     var input = document.createElement('input');
     input.type = 'radio';
     input.name = 'league';

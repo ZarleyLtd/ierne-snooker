@@ -68,6 +68,7 @@ const LeaguesPage = {
     groups.forEach(function (grp, idx) {
       const wrapper = document.createElement('div');
       wrapper.className = 'standings-wrapper';
+      wrapper.setAttribute('data-help', 'leagues.group');
       const heading = document.createElement('h3');
       heading.className = 'standings-heading';
       heading.textContent = grp.name || ('Group ' + (grp.groupId || ''));

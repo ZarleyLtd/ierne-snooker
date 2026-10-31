@@ -129,6 +129,7 @@ const ResultSlipUpload = {
     var takeBtn = document.createElement('button');
     takeBtn.type = 'button';
     takeBtn.className = 'result-slip-menu-btn';
+    takeBtn.setAttribute('data-help', 'result.slipTake');
     takeBtn.textContent = 'Take Photo';
     takeBtn.addEventListener('click', () => {
       this._closeMenu();
@@ -139,6 +140,7 @@ const ResultSlipUpload = {
     var galleryBtn = document.createElement('button');
     galleryBtn.type = 'button';
     galleryBtn.className = 'result-slip-menu-btn';
+    galleryBtn.setAttribute('data-help', 'result.slipGallery');
     galleryBtn.textContent = 'Choose from Gallery';
     galleryBtn.addEventListener('click', () => {
       this._closeMenu();
@@ -149,6 +151,7 @@ const ResultSlipUpload = {
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'result-slip-menu-cancel';
+    cancelBtn.setAttribute('data-help', 'result.slipCancel');
     cancelBtn.textContent = 'Cancel';
     cancelBtn.addEventListener('click', () => this._closeMenu());
     card.appendChild(cancelBtn);
@@ -187,6 +190,7 @@ const ResultSlipUpload = {
     var closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'result-slip-lightbox__close';
+    closeBtn.setAttribute('data-help', 'result.slipClose');
     closeBtn.setAttribute('aria-label', 'Close');
     closeBtn.innerHTML = '&times;';
     closeBtn.addEventListener('click', () => this._closeLightbox());
@@ -204,6 +208,7 @@ const ResultSlipUpload = {
     var replaceBtn = document.createElement('button');
     replaceBtn.type = 'button';
     replaceBtn.className = 'result-slip-menu-btn';
+    replaceBtn.setAttribute('data-help', 'result.slipReplace');
     replaceBtn.textContent = 'Replace Photo';
     replaceBtn.addEventListener('click', () => {
       this._closeLightbox();
@@ -214,6 +219,7 @@ const ResultSlipUpload = {
     var removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.className = 'result-slip-menu-btn result-slip-menu-btn--danger';
+    removeBtn.setAttribute('data-help', 'result.slipRemove');
     removeBtn.textContent = 'Remove Photo';
     removeBtn.addEventListener('click', () => {
       this._closeLightbox();

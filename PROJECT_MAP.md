@@ -7,11 +7,11 @@ No heavy frameworks. Focus on speed, clean SEO, and simple updates.
 ## Folder Structure
 - `/` (Root): Main pages (`index.html`, `rules.html`, `leagues.html`, `fixtures.html`, `results.html`, etc.).
 - `/components/`: Reusable HTML fragments (Header, Nav, Footer).
-- `/assets/css/`: Main stylesheet (`style.css`).
+- `/assets/css/`: Main stylesheet (`style.css`) and contextual help (`contextual-help.css`).
 - `/assets/js/`: Modular JavaScript architecture:
   - `/config/`: Configuration files (`app-config.js` - single source of truth for the Edge Function URL).
-  - `/utils/`: Utility functions (`api-client.js`, `formatters.js`, `image-loader.js`).
-  - `/components/`: Reusable JavaScript components (`knockout-renderer.js`, `league-standings.js`).
+  - `/utils/`: Utility functions (`api-client.js`, `formatters.js`, `image-loader.js`, `help-catalog.js`).
+  - `/components/`: Reusable JavaScript components (`knockout-renderer.js`, `league-standings.js`, `contextual-help.js`).
   - `/pages/`: Page-specific modules (`index.js`, `fixtures.js`, `results.js`, `leagues.js`, `handicaps.js`, etc.).
   - `main.js`: Main entry point and page router.
 - `/assets/images/`: Logos and league photos.
@@ -30,6 +30,7 @@ No heavy frameworks. Focus on speed, clean SEO, and simple updates.
   - No code duplication — single source of truth for shared logic
 - **Backend**: Supabase Postgres, schema `ierne_snooker` on project `Apps` (`yzyipxvlsoxfphwobfkb`). Pages read via the `ierne-api` Edge Function (JSON, GET-only from the browser, no preflight). Standings are computed live via the `league_standings_v` view; the Edge Function applies head-to-head as a mini-league among players tied on points + frame diff. All read endpoints accept `?season=<id>` (default: the row in `seasons` with `is_current = true`).
 - **Responsive**: Mobile-first design (Snooker players check scores on phones).
+- **Help**: A ? button (header, and inside modal dialogs) arms click-to-target help. The next tap explains that control from `help-catalog.js` and does not activate it. Escape or a second tap on ? leaves help.
 
 ## Page Navigation
 - **Home (`index.html`)**: Latest news and knockout tournament results.

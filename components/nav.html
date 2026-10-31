@@ -4,63 +4,64 @@
   Last updated: 2025-01-09
 -->
 <nav class="navbar js-navbar">
-  <button class="navbar__toggle js-toggle" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
-    <span class="navbar__toggle-box">
-      <span class="navbar__toggle-inner">Menu</span>
+  <button class="navbar__toggle js-toggle" aria-label="Menu" aria-haspopup="true" aria-expanded="false" data-help="chrome.menu">
+    <span class="navbar__toggle-box" data-help="chrome.menu">
+      <span class="navbar__toggle-inner" data-help="chrome.menu">Menu</span>
     </span>
   </button>
   <ul class="navbar__menu">
     <li>
-      <a href="index.html" target="_self">Home</a>
+      <a href="index.html" target="_self" data-help="chrome.navHome">Home</a>
     </li>
     <li class="nav-item-standings">
-      <a href="leagues.html" target="_self" class="nav-standings-link">Leagues</a>
+      <a href="leagues.html" target="_self" class="nav-standings-link" data-help="chrome.navLeagues">Leagues</a>
     </li>
     <li>
-      <a href="fixtures.html" target="_self">Fixtures</a>
+      <a href="fixtures.html" target="_self" data-help="chrome.navFixtures">Fixtures</a>
     </li>
     <li>
-      <a href="results.html" target="_self">Results</a>
+      <a href="results.html" target="_self" data-help="chrome.navResults">Results</a>
     </li>
     <li>
-      <a href="top-breaks.html" target="_self">Top Breaks</a>
+      <a href="top-breaks.html" target="_self" data-help="chrome.navBreaks">Top Breaks</a>
     </li>
     <li>
-      <a href="handicaps.html" target="_self">Handicaps</a>
+      <a href="handicaps.html" target="_self" data-help="chrome.navHandicaps">Handicaps</a>
     </li>
     <li>
-      <a href="rules.html" target="_self">Rules</a>
+      <a href="rules.html" target="_self" data-help="chrome.navRules">Rules</a>
     </li>
     <li class="nav-account-signed-out">
-      <button type="button" class="nav-account-connect">Connect</button>
+      <button type="button" class="nav-account-connect" data-help="chrome.connect">Connect</button>
     </li>
     <li class="nav-account-signed-in" hidden>
-      <span class="nav-account-who"></span>
+      <span class="nav-account-who" data-help="chrome.account"></span>
     </li>
     <li class="nav-account-signed-in" hidden>
-      <button type="button" class="nav-account-signout">Sign out</button>
+      <button type="button" class="nav-account-signout" data-help="chrome.signout">Sign out</button>
     </li>
     <li>
-      <button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle">Unlock Admin Mode</button>
+      <button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle" data-help="chrome.adminUnlock">Unlock Admin Mode</button>
     </li>
     <li class="nav-admin-only" hidden aria-hidden="true">
-      <a href="admin-competitions.html" target="_self">Manage Comps</a>
+      <a href="admin-competitions.html" target="_self" data-help="chrome.navManageComps">Manage Comps</a>
     </li>
     <li class="nav-admin-only" hidden aria-hidden="true">
-      <a href="admin-players.html" target="_self">Manage Players</a>
+      <a href="admin-players.html" target="_self" data-help="chrome.navManagePlayers">Manage Players</a>
     </li>
     <li class="nav-admin-only" hidden aria-hidden="true">
-      <a href="admin-fixtures.html" target="_self">Manage Fixtures</a>
+      <a href="admin-fixtures.html" target="_self" data-help="chrome.navManageFixtures">Manage Fixtures</a>
     </li>
     <li class="nav-admin-only" hidden aria-hidden="true">
-      <a href="admin-bulk-players.html" target="_self">Bulk Load Players</a>
+      <a href="admin-bulk-players.html" target="_self" data-help="chrome.navBulkPlayers">Bulk Load Players</a>
     </li>
     <li class="nav-admin-only" hidden aria-hidden="true">
-      <a href="admin-bulk-fixtures.html" target="_self">Bulk Load Fixtures</a>
+      <a href="admin-bulk-fixtures.html" target="_self" data-help="chrome.navBulkFixtures">Bulk Load Fixtures</a>
     </li>
     <li class="nav-admin-only" hidden aria-hidden="true">
-      <a href="admin-accounts.html" target="_self">Accounts</a>
+      <a href="admin-accounts.html" target="_self" data-help="chrome.navAccounts">Accounts</a>
     </li>
   </ul>
+<button type="button" class="help-toggle" data-help-toggle aria-pressed="false" aria-label="Help: tap, then tap a control" title="Help">?</button>
 </nav>
 

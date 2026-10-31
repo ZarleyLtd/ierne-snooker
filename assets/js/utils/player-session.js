@@ -143,19 +143,20 @@ var PlayerSession = {
     connect.className = 'admin-unlock-dialog';
     connect.setAttribute('aria-labelledby', 'player-connect-title');
     connect.innerHTML =
-      '<form class="admin-unlock-dialog__form">' +
+      '<form class="admin-unlock-dialog__form" data-help="sheet.connect">' +
+      '<button type="button" class="help-toggle help-toggle--dialog" data-help-toggle aria-pressed="false" aria-label="Help: tap, then tap a control" title="Help">?</button>' +
       '<h2 id="player-connect-title" class="admin-unlock-dialog__title">Connect</h2>' +
-      '<p>Use the handle and password you chose when you registered, or register <button type="button" class="player-inline-link" id="player-connect-register">Here</button> if you are not registered.</p>' +
+      '<p>Use the handle and password you chose when you registered, or register <button type="button" class="player-inline-link" id="player-connect-register" data-help="sheet.registerLink">Here</button> if you are not registered.</p>' +
       '<p><label for="player-connect-handle">Handle</label></p>' +
-      '<p><input type="text" id="player-connect-handle" class="admin-unlock-dialog__input" autocomplete="username" required /></p>' +
+      '<p><input type="text" id="player-connect-handle" class="admin-unlock-dialog__input" autocomplete="username" required data-help="sheet.connectHandle" /></p>' +
       '<p><label for="player-connect-password">Password</label></p>' +
-      '<p><input type="password" id="player-connect-password" class="admin-unlock-dialog__input" autocomplete="current-password" required /></p>' +
+      '<p><input type="password" id="player-connect-password" class="admin-unlock-dialog__input" autocomplete="current-password" required data-help="sheet.connectPassword" /></p>' +
       '<p id="player-connect-msg" class="admin-unlock-dialog__msg" hidden></p>' +
       '<p class="admin-unlock-dialog__actions">' +
-      '<button type="submit" class="btn">Connect</button> ' +
-      '<button type="button" class="btn" data-close>Cancel</button>' +
+      '<button type="submit" class="btn" data-help="sheet.connectSubmit">Connect</button> ' +
+      '<button type="button" class="btn" data-close data-help="sheet.connectCancel">Cancel</button>' +
       '</p>' +
-      '<p><button type="button" class="btn" id="player-connect-forgot">Forgot password</button></p>' +
+      '<p><button type="button" class="btn" id="player-connect-forgot" data-help="sheet.forgot">Forgot password</button></p>' +
       '</form>';
     document.body.appendChild(connect);
 
@@ -164,23 +165,24 @@ var PlayerSession = {
     register.className = 'admin-unlock-dialog';
     register.setAttribute('aria-labelledby', 'player-register-title');
     register.innerHTML =
-      '<form class="admin-unlock-dialog__form">' +
+      '<form class="admin-unlock-dialog__form" data-help="sheet.register">' +
+      '<button type="button" class="help-toggle help-toggle--dialog" data-help-toggle aria-pressed="false" aria-label="Help: tap, then tap a control" title="Help">?</button>' +
       '<h2 id="player-register-title" class="admin-unlock-dialog__title">Register</h2>' +
       '<p>An admin gives you a one-time code. Choose a handle and password, and pick which player you are.</p>' +
       '<p><label for="player-register-code">Registration code</label></p>' +
-      '<p><input type="text" id="player-register-code" class="admin-unlock-dialog__input" autocomplete="one-time-code" required /></p>' +
+      '<p><input type="text" id="player-register-code" class="admin-unlock-dialog__input" autocomplete="one-time-code" required data-help="sheet.registerCode" /></p>' +
       '<p><label for="player-register-handle">Handle</label></p>' +
-      '<p><input type="text" id="player-register-handle" class="admin-unlock-dialog__input" autocomplete="username" required pattern="[A-Za-z0-9]{3,20}" title="3 to 20 letters or digits" /></p>' +
+      '<p><input type="text" id="player-register-handle" class="admin-unlock-dialog__input" autocomplete="username" required pattern="[A-Za-z0-9]{3,20}" title="3 to 20 letters or digits" data-help="sheet.registerHandle" /></p>' +
       '<p><label for="player-register-password">Password</label></p>' +
-      '<p><input type="password" id="player-register-password" class="admin-unlock-dialog__input" autocomplete="new-password" required minlength="8" /></p>' +
+      '<p><input type="password" id="player-register-password" class="admin-unlock-dialog__input" autocomplete="new-password" required minlength="8" data-help="sheet.registerPassword" /></p>' +
       '<p><label for="player-register-password2">Confirm password</label></p>' +
-      '<p><input type="password" id="player-register-password2" class="admin-unlock-dialog__input" autocomplete="new-password" required minlength="8" /></p>' +
+      '<p><input type="password" id="player-register-password2" class="admin-unlock-dialog__input" autocomplete="new-password" required minlength="8" data-help="sheet.registerPassword2" /></p>' +
       '<p><label for="player-register-player">You are</label></p>' +
-      '<p><select id="player-register-player" class="admin-unlock-dialog__input" required><option value="">Loading players…</option></select></p>' +
+      '<p><select id="player-register-player" class="admin-unlock-dialog__input" required data-help="sheet.registerPlayer"><option value="">Loading players…</option></select></p>' +
       '<p id="player-register-msg" class="admin-unlock-dialog__msg" hidden></p>' +
       '<p class="admin-unlock-dialog__actions">' +
-      '<button type="submit" class="btn">Register</button> ' +
-      '<button type="button" class="btn" data-close>Cancel</button>' +
+      '<button type="submit" class="btn" data-help="sheet.registerSubmit">Register</button> ' +
+      '<button type="button" class="btn" data-close data-help="sheet.connectCancel">Cancel</button>' +
       '</p></form>';
     document.body.appendChild(register);
 
@@ -189,19 +191,20 @@ var PlayerSession = {
     reset.className = 'admin-unlock-dialog';
     reset.setAttribute('aria-labelledby', 'player-reset-title');
     reset.innerHTML =
-      '<form class="admin-unlock-dialog__form">' +
+      '<form class="admin-unlock-dialog__form" data-help="sheet.reset">' +
+      '<button type="button" class="help-toggle help-toggle--dialog" data-help-toggle aria-pressed="false" aria-label="Help: tap, then tap a control" title="Help">?</button>' +
       '<h2 id="player-reset-title" class="admin-unlock-dialog__title">Reset password</h2>' +
       '<p>Ask an admin for a one-time reset code, then choose a new password and connect again.</p>' +
       '<p><label for="player-reset-handle">Handle</label></p>' +
-      '<p><input type="text" id="player-reset-handle" class="admin-unlock-dialog__input" autocomplete="username" required /></p>' +
+      '<p><input type="text" id="player-reset-handle" class="admin-unlock-dialog__input" autocomplete="username" required data-help="sheet.resetHandle" /></p>' +
       '<p><label for="player-reset-code">Reset code</label></p>' +
-      '<p><input type="text" id="player-reset-code" class="admin-unlock-dialog__input" autocomplete="one-time-code" required /></p>' +
+      '<p><input type="text" id="player-reset-code" class="admin-unlock-dialog__input" autocomplete="one-time-code" required data-help="sheet.resetCode" /></p>' +
       '<p><label for="player-reset-password">New password</label></p>' +
-      '<p><input type="password" id="player-reset-password" class="admin-unlock-dialog__input" autocomplete="new-password" required minlength="8" /></p>' +
+      '<p><input type="password" id="player-reset-password" class="admin-unlock-dialog__input" autocomplete="new-password" required minlength="8" data-help="sheet.resetPassword" /></p>' +
       '<p id="player-reset-msg" class="admin-unlock-dialog__msg" hidden></p>' +
       '<p class="admin-unlock-dialog__actions">' +
-      '<button type="submit" class="btn">Update password</button> ' +
-      '<button type="button" class="btn" data-close>Cancel</button>' +
+      '<button type="submit" class="btn" data-help="sheet.resetSubmit">Update password</button> ' +
+      '<button type="button" class="btn" data-close data-help="sheet.connectCancel">Cancel</button>' +
       '</p></form>';
     document.body.appendChild(reset);
 

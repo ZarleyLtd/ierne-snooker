@@ -317,6 +317,7 @@ var ResultsPage = {
           resultEl = document.createElement('button');
           resultEl.type = 'button';
           resultEl.className = 'results-score-btn';
+          resultEl.setAttribute('data-help', 'results.editScore');
           resultEl.textContent = '[' + resultStr + ']';
           resultEl.setAttribute(
             'aria-label',
@@ -332,6 +333,7 @@ var ResultsPage = {
           });
         } else {
           resultEl = document.createElement('span');
+          resultEl.setAttribute('data-help', 'results.score');
           resultEl.textContent = '[' + resultStr + ']';
           resultEl.style.flex = '0 0 auto';
           resultEl.style.fontWeight = 'bold';
@@ -364,6 +366,7 @@ var ResultsPage = {
         if (enteredBy) {
           var byLine = document.createElement('p');
           byLine.className = 'fixture-entered-by';
+          byLine.setAttribute('data-help', 'results.enteredBy');
           byLine.textContent =
             typeof FixturesPage !== 'undefined' && FixturesPage.formatEnteredByLabel
               ? FixturesPage.formatEnteredByLabel(enteredBy)
