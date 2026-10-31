@@ -310,7 +310,7 @@ var AdminCompetitionsPage = (function () {
           return (
             '<button type="button" class="admin-player-picks__row admin-item-list__row' +
             current +
-            '" data-id="' +
+            '" data-help="admin.listRow" data-id="' +
             esc(item.id) +
             '">' +
             '<span class="admin-player-picks__name">' +
@@ -504,7 +504,7 @@ var AdminCompetitionsPage = (function () {
         .map(function (p) {
           var isOn = !!checked[p.playerId];
           return (
-            '<label class="admin-player-picks__row">' +
+            '<label class="admin-player-picks__row" data-help="admin.playerTick">' +
             '<span class="admin-player-picks__name">' +
             esc(p.playerName) +
             '</span>' +

@@ -1,0 +1,119 @@
+/**
+ * Contextual help: ? toggle, help-mode hint, and anchored popover.
+ * Modelled on the Family Tree contextual-help styles, using this site's header.
+ */
+
+.navbar > .help-toggle,
+.help-toggle {
+  flex: 0 0 2.4rem;
+  flex-shrink: 0;
+  width: 2.4rem;
+  height: 2.4rem;
+  margin-left: 0.45rem;
+  padding: 0;
+  border: 1px solid var(--dark, #222);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dark, #222);
+  font-family: var(--menu-font, inherit);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.help-toggle:hover,
+.help-toggle:focus {
+  outline: none;
+  background: rgba(22, 145, 121, 0.12);
+}
+
+button.help-toggle[aria-pressed='true'],
+button.help-toggle[aria-pressed='true']:hover,
+button.help-toggle[aria-pressed='true']:focus,
+button.help-toggle[aria-pressed='true']:active {
+  background: #169179;
+  background-color: #169179;
+  border-color: #169179;
+  color: #fff;
+}
+
+/* A modal dialog makes the header ? inert, so each dialog has its own. */
+.help-toggle--dialog {
+  float: right;
+  margin: 0 0 0.35rem 0.5rem;
+  background: var(--white, #fff);
+}
+
+body.help-mode,
+body.help-mode * {
+  cursor: help !important;
+}
+
+.help-hint {
+  position: fixed;
+  top: var(--navbar-height, 4.4rem);
+  left: 0;
+  right: 0;
+  z-index: 1100;
+  padding: 0.35rem 0.9rem;
+  background: #169179;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+}
+
+dialog[open] > .help-hint {
+  top: 0;
+  z-index: 5;
+}
+
+.help-popover {
+  position: fixed;
+  z-index: 4000;
+  width: min(22rem, calc(100vw - 1.2rem));
+  max-height: min(70vh, 24rem);
+  overflow: auto;
+  padding: 0.85rem 1rem 1rem;
+  background: var(--white, #fff);
+  color: var(--dark, #222);
+  border: 1px solid var(--light, #ddd);
+  border-radius: var(--border-radius, 3px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+
+.help-popover__close {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dark, #222);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.help-popover__close:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.help-popover h3 {
+  margin: 0 2rem 0.4rem 0;
+  font-size: 1rem;
+  color: var(--dark, #222);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.help-popover p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-color, #333);
+}

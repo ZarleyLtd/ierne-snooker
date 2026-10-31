@@ -11,6 +11,7 @@
 
     <title>Manage Fixtures - ierne-snooker</title>
     <link rel="stylesheet" href="assets/css/style.css" />
+    <link rel="stylesheet" href="assets/css/contextual-help.css" />
     <link rel="stylesheet" href="assets/css/admin-panel.css" />
     <link rel="stylesheet" href="assets/css/fixture-features.css" />
     <noscript
@@ -28,45 +29,48 @@
     <script src="assets/js/utils/image-loader.js"></script>
     <script src="assets/js/utils/knockout-rounds.js"></script>
     <script defer src="assets/js/pages/admin-fixtures.js"></script>
+    <script src="assets/js/utils/help-catalog.js"></script>
+    <script src="assets/js/components/contextual-help.js"></script>
     <script defer src="assets/js/main.js"></script>
   </head>
-  <body class="page-template">
+  <body class="page-template" data-page="admin-fixtures">
     <header class="top js-header">
-      <a class="logo" href="index.html">
+      <a class="logo" href="index.html" data-help="chrome.logo">
         <img src="assets/images/Ierne-logo-768x920.png" alt="ierne-snooker" width="768" height="920" />
       </a>
       <nav class="navbar js-navbar">
-        <button class="navbar__toggle js-toggle" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
-          <span class="navbar__toggle-box">
-            <span class="navbar__toggle-inner">Menu</span>
+        <button class="navbar__toggle js-toggle" aria-label="Menu" aria-haspopup="true" aria-expanded="false" data-help="chrome.menu">
+          <span class="navbar__toggle-box" data-help="chrome.menu">
+            <span class="navbar__toggle-inner" data-help="chrome.menu">Menu</span>
           </span>
         </button>
         <ul class="navbar__menu">
-          <li><a href="index.html" target="_self">Home</a></li>
-          <li><a href="leagues.html" target="_self">Leagues</a></li>
-          <li><a href="fixtures.html" target="_self">Fixtures</a></li>
-          <li><a href="results.html" target="_self">Results</a></li>
-          <li><a href="top-breaks.html" target="_self">Top Breaks</a></li>
-          <li><a href="handicaps.html" target="_self">Handicaps</a></li>
-          <li><a href="rules.html" target="_self">Rules</a></li>
+          <li><a href="index.html" target="_self" data-help="chrome.navHome">Home</a></li>
+          <li><a href="leagues.html" target="_self" data-help="chrome.navLeagues">Leagues</a></li>
+          <li><a href="fixtures.html" target="_self" data-help="chrome.navFixtures">Fixtures</a></li>
+          <li><a href="results.html" target="_self" data-help="chrome.navResults">Results</a></li>
+          <li><a href="top-breaks.html" target="_self" data-help="chrome.navBreaks">Top Breaks</a></li>
+          <li><a href="handicaps.html" target="_self" data-help="chrome.navHandicaps">Handicaps</a></li>
+          <li><a href="rules.html" target="_self" data-help="chrome.navRules">Rules</a></li>
           <li class="nav-account-signed-out">
-            <button type="button" class="nav-account-connect">Connect</button>
+            <button type="button" class="nav-account-connect" data-help="chrome.connect">Connect</button>
           </li>
           <li class="nav-account-signed-in" hidden>
-            <span class="nav-account-who"></span>
+            <span class="nav-account-who" data-help="chrome.account"></span>
           </li>
           <li class="nav-account-signed-in" hidden>
-            <button type="button" class="nav-account-signout">Sign out</button>
+            <button type="button" class="nav-account-signout" data-help="chrome.signout">Sign out</button>
           </li>
-          <li><button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle">Unlock Admin Mode</button></li>
-          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-competitions.html" target="_self">Manage Comps</a></li>
-          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-players.html" target="_self">Manage Players</a></li>
-          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-fixtures.html" target="_self">Manage Fixtures</a></li>
-          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-bulk-players.html" target="_self">Bulk Load Players</a></li>
-          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-bulk-fixtures.html" target="_self">Bulk Load Fixtures</a></li>
-          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-accounts.html" target="_self">Accounts</a></li>
+          <li><button type="button" class="nav-admin-toggle" id="nav-admin-mode-toggle" data-help="chrome.adminUnlock">Unlock Admin Mode</button></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-competitions.html" target="_self" data-help="chrome.navManageComps">Manage Comps</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-players.html" target="_self" data-help="chrome.navManagePlayers">Manage Players</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-fixtures.html" target="_self" data-help="chrome.navManageFixtures">Manage Fixtures</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-bulk-players.html" target="_self" data-help="chrome.navBulkPlayers">Bulk Load Players</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-bulk-fixtures.html" target="_self" data-help="chrome.navBulkFixtures">Bulk Load Fixtures</a></li>
+          <li class="nav-admin-only" hidden aria-hidden="true"><a href="admin-accounts.html" target="_self" data-help="chrome.navAccounts">Accounts</a></li>
         </ul>
-      </nav>
+      <button type="button" class="help-toggle" data-help-toggle aria-pressed="false" aria-label="Help: tap, then tap a control" title="Help">?</button>
+    </nav>
     </header>
     <main class="page">
       <article class="content">
@@ -81,7 +85,7 @@
           </figure>
         </div>
         <div class="entry-wrapper content__entry" id="adminFixturesRoot">
-          <p id="adminFixturesGate" class="msg msg--info">
+          <p id="adminFixturesGate" class="msg msg--info" data-help="admin.gate">
             Unlock <strong>Admin Mode</strong> from the menu to manage fixtures.
           </p>
           <div id="adminFixturesPanel" hidden>
@@ -89,20 +93,21 @@
             <div class="admin-fixtures-toolbar">
               <div class="admin-fixtures-toolbar__season">
                 <label for="adminFxComp">Comp</label>
-                <select id="adminFxComp"></select>
+                <select id="adminFxComp" data-help="admin.fxComp"></select>
               </div>
               <p id="adminFxCoherenceWarn" class="admin-fixtures-toolbar__warn msg msg--warning" hidden></p>
-              <button type="button" class="btn admin-fixtures-add-btn" id="adminFxAddBtn">+ Add Fixture</button>
+              <button type="button" class="btn admin-fixtures-add-btn" id="adminFxAddBtn" data-help="admin.addFixture">+ Add Fixture</button>
             </div>
             <div id="adminFxList" class="admin-fixtures-list"></div>
 
-            <dialog id="admin-fixture-dialog" class="admin-fixture-dialog" aria-labelledby="admin-fixture-dialog-title">
+            <dialog id="admin-fixture-dialog" class="admin-fixture-dialog" aria-labelledby="admin-fixture-dialog-title" data-help="admin.editFixture">
               <form id="adminFxDialogForm">
+                <button type="button" class="help-toggle help-toggle--dialog" data-help-toggle aria-pressed="false" aria-label="Help: tap, then tap a control" title="Help">?</button>
                 <h2 id="admin-fixture-dialog-title" class="admin-fixture-dialog__title">Add / edit fixture</h2>
                 <input type="hidden" id="adminFxFixtureId" />
                 <p>
                   <label for="adminFxStage">Stage</label><br />
-                  <select id="adminFxStage" required>
+                  <select id="adminFxStage" required data-help="admin.fxStage">
                     <option value="group">Group</option>
                     <option value="knockout">Knockout</option>
                   </select>
@@ -111,15 +116,15 @@
                   <div class="admin-fixture-dialog__group-week">
                     <p class="admin-fixture-dialog__field admin-fixture-dialog__field--group">
                       <label for="adminFxGroup">Group</label><br />
-                      <select id="adminFxGroup"></select>
+                      <select id="adminFxGroup" data-help="admin.fxGroup"></select>
                     </p>
                     <p class="admin-fixture-dialog__field admin-fixture-dialog__field--week">
                       <label for="adminFxWeek">Week</label><br />
-                      <input type="number" id="adminFxWeek" min="1" step="1" />
+                      <input type="number" id="adminFxWeek" min="1" step="1" data-help="admin.fxWeek" />
                     </p>
                     <p class="admin-fixture-dialog__field admin-fixture-dialog__field--best-of">
                       <label for="adminFxBestOfLeague">Best of</label><br />
-                      <input type="number" id="adminFxBestOfLeague" class="admin-fixture-dialog__best-of" min="1" max="9" step="2" value="3" inputmode="numeric" />
+                      <input type="number" id="adminFxBestOfLeague" class="admin-fixture-dialog__best-of" min="1" max="9" step="2" value="3" inputmode="numeric" data-help="admin.fxBestOf" />
                     </p>
                   </div>
                 </div>
@@ -127,28 +132,28 @@
                   <div class="admin-fixture-dialog__round-best-of">
                     <p class="admin-fixture-dialog__field admin-fixture-dialog__field--round">
                       <label for="adminFxRound">Round</label><br />
-                      <select id="adminFxRound"></select>
+                      <select id="adminFxRound" data-help="admin.fxRound"></select>
                     </p>
                     <p class="admin-fixture-dialog__field admin-fixture-dialog__field--best-of">
                       <label for="adminFxBestOfKo">Best of</label><br />
-                      <input type="number" id="adminFxBestOfKo" class="admin-fixture-dialog__best-of" min="1" max="9" step="2" value="3" inputmode="numeric" />
+                      <input type="number" id="adminFxBestOfKo" class="admin-fixture-dialog__best-of" min="1" max="9" step="2" value="3" inputmode="numeric" data-help="admin.fxBestOf" />
                     </p>
                   </div>
                 </div>
                 <div class="admin-fixture-dialog__players">
                   <p class="admin-fixture-dialog__player-row">
-                    <select id="adminFxPa" required aria-label="Player A"></select>
+                    <select id="adminFxPa" required aria-label="Player A" data-help="admin.fxPlayerA"></select>
                   </p>
                   <p class="admin-fixture-dialog__vs-row" aria-hidden="true">V</p>
                   <p class="admin-fixture-dialog__player-row">
-                    <select id="adminFxPb" required aria-label="Player B"></select>
+                    <select id="adminFxPb" required aria-label="Player B" data-help="admin.fxPlayerB"></select>
                   </p>
                 </div>
                 <p id="adminFxDialogMsg" class="msg" hidden></p>
                 <div class="admin-fixture-dialog__actions">
-                  <button type="submit" class="btn">Save</button>
-                  <button type="button" class="btn" id="adminFxCancelBtn">Cancel</button>
-                  <button type="button" class="btn admin-fixture-dialog__delete" id="adminFxDeleteBtn" hidden>Delete</button>
+                  <button type="submit" class="btn" data-help="admin.fxSave">Save</button>
+                  <button type="button" class="btn" id="adminFxCancelBtn" data-help="admin.fxCancel">Cancel</button>
+                  <button type="button" class="btn admin-fixture-dialog__delete" id="adminFxDeleteBtn" hidden data-help="admin.fxDelete">Delete</button>
                 </div>
               </form>
             </dialog>
@@ -160,13 +165,13 @@
       <div class="wrapper">
         <nav class="footer__nav">
           <ul>
-            <li><a href="leagues.html" class="al" target="_self">Leagues</a></li>
-            <li><a href="fixtures.html" class="al" target="_self">Fixtures</a></li>
-            <li><a href="results.html" class="al" target="_self">Results</a></li>
+            <li><a href="leagues.html" class="al" target="_self" data-help="chrome.navLeagues">Leagues</a></li>
+            <li><a href="fixtures.html" class="al" target="_self" data-help="chrome.navFixtures">Fixtures</a></li>
+            <li><a href="results.html" class="al" target="_self" data-help="chrome.navResults">Results</a></li>
           </ul>
         </nav>
         <div class="footer__copyright"><p><span style="color: #169179">by JP</span></p></div>
-        <button id="backToTop" class="footer__bttop" aria-label="Back to top" title="Back to top">
+        <button id="backToTop" class="footer__bttop" aria-label="Back to top" title="Back to top" data-help="chrome.backToTop">
           <svg width="20" height="20" viewBox="0 0 24 24">
             <path d="M8 6L12 2L16 6" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
             <path d="M12 2V22" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />

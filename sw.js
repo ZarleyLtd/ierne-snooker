@@ -1,4 +1,4 @@
-var CACHE = 'ierne-shell-v4';
+var CACHE = 'ierne-shell-v5';
 var SHELL = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ var SHELL = [
   './rules.html',
   './manifest.json',
   './assets/css/style.css',
+  './assets/css/contextual-help.css',
   './assets/css/brief-message.css',
   './assets/css/fixture-features.css',
   './assets/icons/icon.svg',
@@ -25,6 +26,8 @@ var SHELL = [
   './assets/js/utils/formatters.js',
   './assets/js/utils/image-loader.js',
   './assets/js/utils/nav-active.js',
+  './assets/js/utils/help-catalog.js',
+  './assets/js/components/contextual-help.js',
   './assets/js/utils/knockout-rounds.js',
   './assets/js/utils/brief-message.js',
   './assets/js/utils/league-group-filter.js',

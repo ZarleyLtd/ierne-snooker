@@ -14,10 +14,12 @@ assets/js/
 │   ├── csv-parse.js           # Delimiter sniff + row split for admin CSV import
 │   ├── formatters.js          # Data formatting helpers
 │   ├── image-loader.js        # Image loading utility
+│   ├── help-catalog.js        # Contextual help copy (keys match data-help)
 │   ├── nav-active.js          # Active nav item
 │   ├── knockout-rounds.js     # Knockout round codes/labels for admin fixtures
 │   └── player-slug.js         # Deterministic player_id slug (matches migration script)
 ├── components/
+│   ├── contextual-help.js     # ? then tap a control for an explanation
 │   ├── knockout-renderer.js   # Reusable knockout tournament display component
 │   └── league-standings.js    # Reusable league standings display component
 ├── pages/

@@ -308,6 +308,7 @@ var KnockoutBracket = (function () {
   function renderMatchCard(match, winnersByCode) {
     var card = document.createElement('article');
     card.className = 'ko-bracket-match';
+    card.setAttribute('data-help', 'ko.match');
     var code = String(match['Game Week'] || '').trim();
     if (code) card.setAttribute('data-round-code', code);
 
@@ -617,6 +618,7 @@ var KnockoutBracket = (function () {
     var prevBtn = document.createElement('button');
     prevBtn.type = 'button';
     prevBtn.className = 'ko-bracket-shell__arrow ko-bracket-shell__arrow--prev';
+    prevBtn.setAttribute('data-help', 'ko.prev');
     prevBtn.setAttribute('aria-label', 'Earlier stage');
     prevBtn.innerHTML =
       '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6L8 12L14 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -624,6 +626,7 @@ var KnockoutBracket = (function () {
     var nextBtn = document.createElement('button');
     nextBtn.type = 'button';
     nextBtn.className = 'ko-bracket-shell__arrow ko-bracket-shell__arrow--next';
+    nextBtn.setAttribute('data-help', 'ko.next');
     nextBtn.setAttribute('aria-label', 'Later stage');
     nextBtn.innerHTML =
       '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L16 12L10 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -637,6 +640,7 @@ var KnockoutBracket = (function () {
       headerRow.className = 'ko-bracket-stage-nav';
       stageTitleEl = document.createElement('div');
       stageTitleEl.className = 'ko-bracket-stage-nav__title align-center';
+      stageTitleEl.setAttribute('data-help', 'ko.stage');
       stageTitleEl.textContent = stages[0].label || stages[0].stageKey || '';
       headerRow.appendChild(prevBtn);
       headerRow.appendChild(stageTitleEl);

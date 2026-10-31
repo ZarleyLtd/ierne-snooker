@@ -39,6 +39,7 @@ const IndexPage = {
   buildLeagueCard: function (comp, groups) {
     var card = document.createElement('article');
     card.className = 'home-comp-card home-comp-card--league';
+    card.setAttribute('data-help', 'home.leagueCard');
     card.setAttribute('data-comp-id', comp.compId);
 
     var html = '';
@@ -69,6 +70,7 @@ const IndexPage = {
   buildKnockoutCard: function (comp, fixtures) {
     var card = document.createElement('article');
     card.className = 'home-comp-card home-comp-card--knockout';
+    card.setAttribute('data-help', 'home.knockoutCard');
     card.setAttribute('data-comp-id', comp.compId);
 
     var bracket = document.createElement('div');
