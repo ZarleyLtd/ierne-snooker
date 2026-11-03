@@ -281,7 +281,17 @@ var ResultsPage = {
         );
         var enteredBy = String(match.resultEnteredBy || '').trim();
         if (enteredBy) div.setAttribute('data-result-entered-by', enteredBy);
+        var approvedBy = String(match.resultApprovedBy || '').trim();
+        if (approvedBy) div.setAttribute('data-result-approved-by', approvedBy);
+        if (match.resultApprovedAt) {
+          div.setAttribute('data-result-approved-at', match.resultApprovedAt);
+        }
         div.setAttribute('data-had-result', '1');
+        var unapproved =
+          typeof FixturesPage !== 'undefined' &&
+          FixturesPage.isUnapprovedResult &&
+          FixturesPage.isUnapprovedResult(match);
+        if (unapproved) div.setAttribute('data-result-approved', 'false');
 
         var sa = match.scoreA != null && match.scoreA !== '' ? Number(match.scoreA) : 0;
         var sb = match.scoreB != null && match.scoreB !== '' ? Number(match.scoreB) : 0;
@@ -311,8 +321,8 @@ var ResultsPage = {
         var resultEl;
         var canEdit =
           typeof FixturesPage !== 'undefined' &&
-          FixturesPage.canEditFixture &&
-          FixturesPage.canEditFixture(slotA, slotB, match.resultPostedAt || '');
+          FixturesPage.canOpenResult &&
+          FixturesPage.canOpenResult(slotA, slotB, match.resultPostedAt || '', unapproved);
         if (canEdit && fid) {
           resultEl = document.createElement('button');
           resultEl.type = 'button';
@@ -332,11 +342,21 @@ var ResultsPage = {
           });
         } else {
           resultEl = document.createElement('span');
+          resultEl.className = 'results-score';
           resultEl.textContent = '[' + resultStr + ']';
           resultEl.style.flex = '0 0 auto';
           resultEl.style.fontWeight = 'bold';
           resultEl.style.minWidth = '3.5em';
           resultEl.style.textAlign = 'center';
+        }
+        if (unapproved) {
+          resultEl.classList.add('is-unapproved');
+          if (resultEl.tagName === 'BUTTON') {
+            resultEl.setAttribute(
+              'aria-label',
+              'Unapproved result ' + resultStr + ': ' + nameA + ' vs ' + nameB
+            );
+          }
         }
         resultEl.style.flex = '0 0 auto';
         resultEl.style.fontWeight = 'bold';
@@ -361,15 +381,6 @@ var ResultsPage = {
         div.appendChild(resultEl);
         div.appendChild(playerB);
         wrap.appendChild(div);
-        if (enteredBy) {
-          var byLine = document.createElement('p');
-          byLine.className = 'fixture-entered-by';
-          byLine.textContent =
-            typeof FixturesPage !== 'undefined' && FixturesPage.formatEnteredByLabel
-              ? FixturesPage.formatEnteredByLabel(enteredBy)
-              : 'Entered by ' + enteredBy;
-          wrap.appendChild(byLine);
-        }
         container.appendChild(wrap);
       });
     });

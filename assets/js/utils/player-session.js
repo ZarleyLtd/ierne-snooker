@@ -128,12 +128,14 @@ var PlayerSession = {
     ApiClient.post('signOut', {}).then(finish).catch(finish);
   },
 
-  setMsg: function (id, text, isErr) {
+  setMsg: function (id, text, isErr, isSuccess) {
     var el = document.getElementById(id);
     if (!el) return;
     el.textContent = text || '';
     el.hidden = !text;
-    el.className = 'admin-unlock-dialog__msg' + (isErr ? ' msg--warning' : '');
+    el.className =
+      'admin-unlock-dialog__msg' +
+      (isErr ? ' msg--warning' : isSuccess ? ' msg--success' : '');
   },
 
   ensureDialogs: function () {
@@ -278,9 +280,14 @@ var PlayerSession = {
         newPassword: document.getElementById('player-reset-password').value,
       })
         .then(function () {
+          var handleEl = document.getElementById('player-reset-handle');
+          var handle = handleEl ? handleEl.value : '';
           document.getElementById('player-reset-password').value = '';
           document.getElementById('player-reset-code').value = '';
-          self.setMsg('player-reset-msg', 'Password updated. Connect with your new password.', false);
+          self.setMsg('player-reset-msg', '', false);
+          var resetDlg = document.getElementById('player-reset-dialog');
+          if (resetDlg) resetDlg.close();
+          self.openConnect(handle, 'Password was successfully reset.');
         })
         .catch(function (err) {
           self.setMsg('player-reset-msg', err.message || 'Reset failed', true);
@@ -293,11 +300,13 @@ var PlayerSession = {
     if (typeof dlg.showModal === 'function') dlg.showModal();
   },
 
-  openConnect: function () {
-    this.setMsg('player-connect-msg', '', false);
+  openConnect: function (handle, notice) {
+    this.setMsg('player-connect-msg', notice || '', false, !!notice);
     this.openDialog(document.getElementById('player-connect-dialog'));
-    var handle = document.getElementById('player-connect-handle');
-    if (handle) handle.focus();
+    var handleEl = document.getElementById('player-connect-handle');
+    if (handleEl && handle) handleEl.value = handle;
+    var focusEl = handle ? document.getElementById('player-connect-password') : handleEl;
+    if (focusEl) focusEl.focus();
   },
 
   openRegister: function () {

@@ -26,18 +26,42 @@ const LeaguesPage = {
     });
   },
 
+  /** Standings always belong to a league, even when now-showing is a knockout. */
+  leagueApiParams: function () {
+    if (typeof CurrentCompetition === 'undefined') return { competitionType: 'league' };
+    var comp = CurrentCompetition.get();
+    if (comp && CurrentCompetition.isLeague && CurrentCompetition.isLeague()) {
+      return { comp: comp.compId };
+    }
+    if (comp && CurrentCompetition.isLeagueKnockoutStage && CurrentCompetition.isLeagueKnockoutStage(comp)) {
+      var parentId = String(comp.parentCompId || '').trim();
+      if (parentId) return { comp: parentId };
+    }
+    var leagues = (CurrentCompetition.currentComps() || []).filter(function (c) {
+      return c && CurrentCompetition.isKnockoutComp && !CurrentCompetition.isKnockoutComp(c);
+    });
+    if (leagues.length) return { comp: leagues[0].compId };
+    return CurrentCompetition.apiParams();
+  },
+
   loadStandings: async function (params) {
     const root = document.getElementById('leagues-standings-root');
     try {
-      var apiParams = params || (typeof CurrentCompetition !== 'undefined'
-        ? CurrentCompetition.apiParams()
-        : { competitionType: 'league' });
+      var apiParams = params || this.leagueApiParams();
       const result = await ApiClient.get(
         Object.assign({ action: 'getStandings' }, apiParams)
       );
       const groups = (result.groups || []).filter(function (grp) {
         return String(grp.groupId) !== 'ko';
       });
+
+      var label = document.getElementById('page-competition-name');
+      if (label && result.compId && typeof CurrentCompetition !== 'undefined' && CurrentCompetition.allComps) {
+        var shown = (CurrentCompetition.allComps() || []).find(function (c) {
+          return c && String(c.compId) === String(result.compId);
+        });
+        if (shown && shown.name) label.textContent = shown.name;
+      }
 
       if (root) {
         this.renderGroups(root, groups);
@@ -79,6 +103,12 @@ const LeaguesPage = {
       root.appendChild(wrapper);
       const sorted = LeagueStandings.sort(grp.rows || []);
       LeagueStandings.render(pre.id, sorted);
+      if (sorted.some(function (player) { return player && player.unapproved; })) {
+        const note = document.createElement('p');
+        note.className = 'standings-pending-note';
+        note.textContent = '* some results are pending approval';
+        wrapper.appendChild(note);
+      }
     });
   },
 };

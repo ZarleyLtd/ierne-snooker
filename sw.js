@@ -1,4 +1,4 @@
-var CACHE = 'ierne-shell-v4';
+var CACHE = 'ierne-shell-v11';
 var SHELL = [
   './',
   './index.html',

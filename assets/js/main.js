@@ -58,8 +58,9 @@ document.addEventListener('DOMContentLoaded', function() {
     ResultsPage.init();
   }
 
-  // Leagues page (league-one, league-two)
-  if (document.getElementById('league-one') ||
+  // Leagues page
+  if (document.getElementById('leagues-standings-root') ||
+      document.getElementById('league-one') ||
       document.getElementById('league-two')) {
     LeaguesPage.init();
   }

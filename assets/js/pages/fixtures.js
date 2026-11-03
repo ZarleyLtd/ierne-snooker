@@ -44,8 +44,37 @@ var FixturesPage = {
     return typeof AdminMode !== 'undefined' && AdminMode.isUnlocked();
   },
 
+  isApproverAccount: function () {
+    if (this.isAdmin()) return false;
+    if (typeof PlayerSession === 'undefined' || !PlayerSession.account) return false;
+    var account = PlayerSession.account();
+    return !!(account && account.isApprover);
+  },
+
+  canApproveResults: function () {
+    return this.isAdmin() || this.isApproverAccount();
+  },
+
+  canOpenResult: function (playerAId, playerBId, resultPostedAt) {
+    return this.canEditFixture(playerAId, playerBId, resultPostedAt);
+  },
+
+  isUnapprovedResult: function (match) {
+    if (!match || match.resultApproved !== false) return false;
+    return !!(match.Result && String(match.Result).trim()) ||
+      !!(match['Result'] && String(match['Result']).trim());
+  },
+
+  updateDialogApprove: function (show) {
+    var btn = document.getElementById('fixture-result-approve');
+    if (!btn) return;
+    var visible = !!(show && this.canApproveResults());
+    btn.hidden = !visible;
+    btn.style.display = visible ? '' : 'none';
+  },
+
   canEditFixture: function (playerAId, playerBId, resultPostedAt) {
-    if (this.isAdmin()) return true;
+    if (this.isAdmin() || this.isApproverAccount()) return true;
     if (typeof PlayerSession === 'undefined' || !PlayerSession.isSignedIn()) return false;
     var mine = this.normalizePlayerId(PlayerSession.playerId());
     if (!mine) return false;
@@ -100,18 +129,56 @@ var FixturesPage = {
     return true;
   },
 
-  formatEnteredByLabel: function (enteredBy) {
-    var by = String(enteredBy || '').trim();
-    if (!by) return '';
-    return 'Entered by ' + by;
+  formatEntryDateTime: function (postedAt) {
+    var raw = String(postedAt || '').trim();
+    if (!raw) return '';
+    var dt = new Date(raw);
+    if (isNaN(dt.getTime())) return '';
+    var months =
+      typeof Formatters !== 'undefined' && Formatters._monthShort
+        ? Formatters._monthShort
+        : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var hh = String(dt.getHours()).padStart(2, '0');
+    var mm = String(dt.getMinutes()).padStart(2, '0');
+    return dt.getDate() + ' ' + months[dt.getMonth()] + ' ' + dt.getFullYear() + ' at ' + hh + ':' + mm;
   },
 
-  updateDialogEnteredBy: function (enteredBy) {
+  formatEnteredByLabel: function (enteredBy, postedAt) {
+    var by = String(enteredBy || '').trim();
+    if (!by) return '';
+    var when = this.formatEntryDateTime(postedAt);
+    if (!when) return 'Entered by ' + by;
+    return 'Entered by ' + by + ' on ' + when;
+  },
+
+  updateDialogEnteredBy: function (enteredBy, postedAt) {
     var el = document.getElementById('fixture-result-entered-by');
     if (!el) return;
-    var text = this.formatEnteredByLabel(enteredBy);
+    var text = this.formatEnteredByLabel(enteredBy, postedAt);
     el.textContent = text;
     el.hidden = !text;
+  },
+
+  formatApprovedByLabel: function (approvedBy, approvedAt) {
+    var by = String(approvedBy || '').trim();
+    if (!by) return '';
+    var when = this.formatEntryDateTime(approvedAt);
+    if (!when) return 'Approved by ' + by;
+    return 'Approved by ' + by + ' on ' + when;
+  },
+
+  updateDialogApprovedBy: function (approvedBy, approvedAt, isApproved) {
+    var el = document.getElementById('fixture-result-approved-by');
+    if (!el) return;
+    var text = isApproved ? this.formatApprovedByLabel(approvedBy, approvedAt) : '';
+    el.textContent = text;
+    el.hidden = !text;
+  },
+
+  setResultDialogTitle: function (editing) {
+    var titleEl = document.getElementById('fixture-result-title');
+    if (!titleEl) return;
+    titleEl.textContent = editing ? 'Edit Result' : 'Enter result';
   },
 
   ensureHandicapsLoaded: function () {
@@ -628,6 +695,20 @@ var FixturesPage = {
       });
     }
 
+    var approveBtn = document.getElementById('fixture-result-approve');
+    if (approveBtn) {
+      approveBtn.addEventListener('click', function () {
+        self.approveResultDialog().catch(function (err) {
+          var msg = document.getElementById('fixture-result-msg');
+          if (msg) {
+            msg.textContent = err.message || String(err);
+            msg.hidden = false;
+            msg.classList.add('msg--warning');
+          }
+        });
+      });
+    }
+
     var cancelBtn = document.getElementById('fixture-result-cancel');
     if (cancelBtn) {
       cancelBtn.addEventListener('click', function () {
@@ -872,9 +953,11 @@ var FixturesPage = {
       var group = this.selectedLeague();
 
       var upcoming = data.filter(function (r) {
-        var notPlayed = !r['Result'] || String(r['Result']).trim() === '';
+        var played = !!(r['Result'] && String(r['Result']).trim());
+        var unapproved = played && r.resultApproved === false;
+        var notPlayed = !played;
         var hasParticipants = r['Game Week'] && r['Player A'] && r['Player B'];
-        if (!notPlayed || !hasParticipants) return false;
+        if ((!notPlayed && !unapproved) || !hasParticipants) return false;
         if (!isKnockout) {
           var stage = String(r.Stage || '').toLowerCase();
           if (stage === 'knockout') return false;
@@ -1023,6 +1106,18 @@ var FixturesPage = {
         div.setAttribute('data-best-of', String(self.normalizeBestOf(match.bestOf)));
         var enteredBy = String(match.resultEnteredBy || '').trim();
         if (enteredBy) div.setAttribute('data-result-entered-by', enteredBy);
+        var approvedBy = String(match.resultApprovedBy || '').trim();
+        if (approvedBy) div.setAttribute('data-result-approved-by', approvedBy);
+        if (match.resultApprovedAt) {
+          div.setAttribute('data-result-approved-at', match.resultApprovedAt);
+        }
+        var unapproved = self.isUnapprovedResult(match);
+        if (unapproved) div.setAttribute('data-result-approved', 'false');
+        if (match.scoreA != null && match.scoreA !== '' && match.scoreB != null && match.scoreB !== '') {
+          div.setAttribute('data-prefill-score-a', String(match.scoreA));
+          div.setAttribute('data-prefill-score-b', String(match.scoreB));
+          div.setAttribute('data-had-result', '1');
+        }
         var resultReady = self.fixtureResultReady(match, isKnockout, winnersByCode);
         div.setAttribute('data-result-ready', resultReady ? 'true' : 'false');
 
@@ -1030,7 +1125,7 @@ var FixturesPage = {
         var playerA = self.makePlayerNameEl(nameA, pidA, matchDate, 'right');
 
         var center;
-        var canEdit = self.canEditFixture(slotA, slotB, match.resultPostedAt || '');
+        var canEdit = self.canOpenResult(slotA, slotB, match.resultPostedAt || '', unapproved);
         if (canEdit && fid && resultReady) {
           center = document.createElement('button');
           center.type = 'button';
@@ -1051,6 +1146,15 @@ var FixturesPage = {
             center.setAttribute(
               'title',
               'Result entry is available once both players are known'
+            );
+          }
+        }
+        if (unapproved) {
+          center.classList.add('is-unapproved');
+          if (center.tagName === 'BUTTON') {
+            center.setAttribute(
+              'aria-label',
+              'Unapproved result for ' + nameA + ' vs ' + nameB
             );
           }
         }
@@ -1154,7 +1258,16 @@ var FixturesPage = {
     document.getElementById('fixture-result-player-a-id').value = pidA;
     document.getElementById('fixture-result-player-b-id').value = pidB;
 
-    this.updateDialogEnteredBy(rowEl.getAttribute('data-result-entered-by'));
+    this.updateDialogEnteredBy(
+      rowEl.getAttribute('data-result-entered-by'),
+      rowEl.getAttribute('data-result-posted-at')
+    );
+    this.updateDialogApprovedBy(
+      rowEl.getAttribute('data-result-approved-by'),
+      rowEl.getAttribute('data-result-approved-at'),
+      rowEl.getAttribute('data-result-approved') !== 'false'
+    );
+    this.updateDialogApprove(rowEl.getAttribute('data-result-approved') === 'false');
     this.setResultDialogMatchDate(prevDate && String(prevDate).trim() ? prevDate : '');
     this.setResultDialogPlayerLabels(nameA, nameB);
 
@@ -1175,6 +1288,7 @@ var FixturesPage = {
         this.applyCanonicalFrameAssignment(na, nb);
       }
     }
+    this.setResultDialogTitle(this._dialogOpenedWithResult);
 
     var racksA = document.getElementById('fixture-frame-racks-a');
     var racksB = document.getElementById('fixture-frame-racks-b');
@@ -1232,6 +1346,26 @@ var FixturesPage = {
       });
   },
 
+  approveResultDialog: async function () {
+    var dlg = document.getElementById('fixture-result-dialog');
+    var msg = document.getElementById('fixture-result-msg');
+    var fixtureId = document.getElementById('fixture-result-fixture-id').value;
+    if (!fixtureId) throw new Error('Missing fixture');
+    if (!this.canApproveResults()) throw new Error('Only an approver or an admin can approve this result.');
+    if (msg) {
+      msg.textContent = 'Approving…';
+      msg.hidden = false;
+      msg.classList.remove('msg--warning', 'msg--success');
+    }
+    await ApiClient.post('approveFixtureResult', { fixtureId: fixtureId });
+    this._slipSaveSucceeded = true;
+    if (dlg) dlg.close();
+    window.dispatchEvent(
+      new CustomEvent(this.RESULT_SAVED_EVENT, { detail: { fixtureId: fixtureId } })
+    );
+    if (document.getElementById('fixtures-list')) await this.render();
+  },
+
   submitResultDialog: async function () {
     var dlg = document.getElementById('fixture-result-dialog');
     var msg = document.getElementById('fixture-result-msg');
@@ -1250,7 +1384,7 @@ var FixturesPage = {
 
     if (!this.canEditFixture(pidA, pidB, this._openResultPostedAt || '')) {
       throw new Error(
-        'This result can only be changed within 24 hours of being posted, and only by a player in the match or an admin.'
+        'This result can only be changed within 24 hours of being posted, and only by a player in the match, an approver, or an admin.'
       );
     }
 

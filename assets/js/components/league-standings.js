@@ -45,7 +45,8 @@ const LeagueStandings = {
     ].join(' ');
     
     const sep = '-'.repeat(header.length);
-    const lines = [header, sep];
+    container.textContent = '';
+    container.appendChild(document.createTextNode(header + '\n' + sep + '\n'));
     
     let lastPts = null, lastPM = null, lastRank = 0;
     
@@ -58,7 +59,7 @@ const LeagueStandings = {
       lastPM = pm;
       lastRank = rank;
       
-      lines.push([
+      const line = [
         Formatters.padLeft(rank, 2),
         Formatters.padRight(Formatters.truncateName(player['Player Name']), 16),
         Formatters.padLeft(player.P, 2),
@@ -66,9 +67,12 @@ const LeagueStandings = {
         Formatters.padLeft(player.L, 2),
         Formatters.padLeft(player['+/-'], 3),
         Formatters.padLeft(player.Pts, 3)
-      ].join(' '));
+      ].join(' ');
+      const span = document.createElement('span');
+      span.className = player.unapproved ? 'standings-line standings-line--unapproved' : 'standings-line';
+      span.textContent = line;
+      container.appendChild(span);
+      container.appendChild(document.createTextNode('\n'));
     });
-    
-    container.textContent = lines.join('\n');
   }
 };

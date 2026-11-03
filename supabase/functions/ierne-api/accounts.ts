@@ -29,6 +29,7 @@ export type PublicAccount = {
   playerId: string;
   playerName: string;
   isAdmin: boolean;
+  isApprover: boolean;
 };
 
 export type PlayerActor = {
@@ -36,6 +37,7 @@ export type PlayerActor = {
   playerId: string;
   handle: string;
   isAdmin: boolean;
+  isApprover: boolean;
 };
 
 function randomCode(len = 8) {
@@ -116,6 +118,7 @@ function publicAccount(row: Record<string, unknown>): PublicAccount {
     playerId: String(row.player_id),
     playerName: String(row.player_name ?? ""),
     isAdmin: flagBool(row.is_admin),
+    isApprover: flagBool(row.is_approver),
   };
 }
 
@@ -143,6 +146,7 @@ async function findSession(sql: Sql, token: string) {
            a.player_id,
            a.disabled_at,
            a.is_admin,
+           a.is_approver,
            p.player_name
     from ierne_snooker.sessions s
     join ierne_snooker.accounts a on a.id = s.account_id
@@ -192,6 +196,7 @@ export async function readPlayerSession(sql: Sql, token: unknown): Promise<Playe
     playerId: String(row.player_id),
     handle: String(row.handle),
     isAdmin: flagBool(row.is_admin),
+    isApprover: flagBool(row.is_approver),
   };
 }
 
@@ -276,6 +281,7 @@ export async function registerAccount(sql: Sql, req: Request, data: Record<strin
           player_id: account.player_id,
           player_name: player.player_name,
           is_admin: false,
+          is_approver: false,
         }),
       };
     });
@@ -297,7 +303,7 @@ export async function connectAccount(sql: Sql, req: Request, data: Record<string
     throw new ApiError("Too many attempts. Try again later.", 429);
   }
   const rows = await sql`
-    select a.id, a.handle, a.password_hash, a.player_id, a.disabled_at, a.is_admin, p.player_name
+    select a.id, a.handle, a.password_hash, a.player_id, a.disabled_at, a.is_admin, a.is_approver, p.player_name
     from ierne_snooker.accounts a
     join ierne_snooker.players p on p.player_id = a.player_id
     where a.handle = ${handle}
@@ -465,7 +471,7 @@ export async function revokeInvite(sql: Sql, data: Record<string, unknown>) {
 
 export async function listAccounts(sql: Sql) {
   const rows = await sql`
-    select a.id, a.handle, a.player_id, a.is_admin, a.disabled_at, a.created_at, a.last_seen_at, p.player_name
+    select a.id, a.handle, a.player_id, a.is_admin, a.is_approver, a.disabled_at, a.created_at, a.last_seen_at, p.player_name
     from ierne_snooker.accounts a
     join ierne_snooker.players p on p.player_id = a.player_id
     order by a.handle asc
@@ -476,6 +482,7 @@ export async function listAccounts(sql: Sql) {
     playerId: row.player_id,
     playerName: row.player_name,
     isAdmin: flagBool(row.is_admin),
+    isApprover: flagBool(row.is_approver),
     disabled: row.disabled_at != null,
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
@@ -513,10 +520,36 @@ export async function setAccountAdmin(sql: Sql, data: Record<string, unknown>) {
   const isAdmin = data.isAdmin === true || data.isAdmin === "true" || data.isAdmin === 1;
   const rows = await sql`
     update ierne_snooker.accounts
-    set is_admin = ${isAdmin}, updated_at = now()
+    set is_admin = ${isAdmin},
+        is_approver = case when ${isAdmin} then false else is_approver end,
+        updated_at = now()
     where id = ${accountId}::uuid
-    returning id, is_admin
+    returning id, is_admin, is_approver
   `;
   if (!rows.length) throw new ApiError("Account not found", 404);
-  return { ok: true, isAdmin: flagBool(rows[0].is_admin) };
+  return {
+    ok: true,
+    isAdmin: flagBool(rows[0].is_admin),
+    isApprover: flagBool(rows[0].is_approver),
+  };
+}
+
+export async function setAccountApprover(sql: Sql, data: Record<string, unknown>) {
+  const accountId = String(data.accountId ?? "").trim();
+  if (!accountId) throw new ApiError("accountId required");
+  const isApprover = data.isApprover === true || data.isApprover === "true" || data.isApprover === 1;
+  const rows = await sql`
+    update ierne_snooker.accounts
+    set is_approver = ${isApprover},
+        is_admin = case when ${isApprover} then false else is_admin end,
+        updated_at = now()
+    where id = ${accountId}::uuid
+    returning id, is_admin, is_approver
+  `;
+  if (!rows.length) throw new ApiError("Account not found", 404);
+  return {
+    ok: true,
+    isAdmin: flagBool(rows[0].is_admin),
+    isApprover: flagBool(rows[0].is_approver),
+  };
 }

@@ -30,12 +30,20 @@
 //   upsertFixture, updateFixtureResult, upsertBreak, deleteBreak,
 //   deleteFixture, deleteHandicap, deletePlayer,
 //   getResultSlip, uploadResultSlip, commitResultSlip,
-//   discardResultSlipSession, removeResultSlip,
-//   issueInvite, listInvites, revokeInvite, listAccounts, disableAccount, setAccountAdmin
+//   discardResultSlipSession, removeResultSlip, approveFixtureResult,
+//   issueInvite, listInvites, revokeInvite, listAccounts, disableAccount,
+//   setAccountAdmin, setAccountApprover
+// An approver account may enter or edit any match score, and may approve one.
+// Those saves are approved immediately, as are scores entered or edited by an
+// admin. Other admin actions stay admin-only.
 // Player session (no admin PIN): register, connect, resetPassword, signOut, whoAmI.
 // updateFixtureResult, breaks, and result-slip actions also accept a player session
 // for that player's own match, until 24 hours after the result is first posted.
 // result_entered_by is "Admin" or the player's name.
+// result_approved is true for admin- and approver-entered scores, and false until
+// an admin or approver approves a player-entered score. Unapproved scores still
+// count in standings.
+// result_approved_by / result_approved_at record that later approval.
 //
 // Standings ordering (Ierne tiebreak chain):
 //   1. points desc
@@ -53,6 +61,7 @@ import {
   listAccounts,
   listInvites,
   setAccountAdmin,
+  setAccountApprover,
   readPlayerSession,
   registerAccount,
   resetAccountPassword,
@@ -238,6 +247,9 @@ type FixtureRow = {
   sort_order: number;
   best_of: number;
   result_entered_by: string | null;
+  result_approved: boolean;
+  result_approved_by?: string | null;
+  result_approved_at?: string | Date | null;
   result_posted_at?: string | Date | null;
 };
 
@@ -769,7 +781,8 @@ async function handleGetFixtures(req: Request): Promise<Response> {
       select fixture_id, competition_id, group_id, stage, round_label,
              player_a_id, player_b_id,
              to_char(match_date, 'YYYY-MM-DD') as match_date,
-             score_a, score_b, sort_order, best_of, result_entered_by, result_posted_at
+             score_a, score_b, sort_order, best_of, result_entered_by,
+             result_approved, result_approved_by, result_approved_at, result_posted_at
       from ierne_snooker.fixtures
       where competition_id = ${compId}
       order by sort_order asc, round_label asc
@@ -803,6 +816,14 @@ async function handleGetFixtures(req: Request): Promise<Response> {
       sortOrder: r.sort_order,
       bestOf: r.best_of ?? 3,
       resultEnteredBy: r.result_entered_by ?? "",
+      resultApproved: r.score_a == null || r.score_b == null ? true : r.result_approved !== false,
+      resultApprovedBy: r.result_approved && r.result_approved_by ? r.result_approved_by : "",
+      resultApprovedAt: r.result_approved && r.result_approved_at
+        ? (() => {
+          const approvedAt = new Date(r.result_approved_at as string | Date);
+          return Number.isFinite(approvedAt.getTime()) ? approvedAt.toISOString() : null;
+        })()
+        : null,
       playerAId: r.player_a_id,
       playerBId: r.player_b_id,
       resultPostedAt: r.result_posted_at
@@ -825,7 +846,7 @@ async function handleGetStandings(req: Request): Promise<Response> {
   );
 
   const sql = db();
-  const [players, groups, members, standings, h2h] = await Promise.all([
+  const [players, groups, members, standings, h2h, unapproved] = await Promise.all([
     loadAllPlayers(),
     loadCompetitionGroups(compId),
     sql<CompetitionPlayerRow[]>`
@@ -845,6 +866,15 @@ async function handleGetStandings(req: Request): Promise<Response> {
       from ierne_snooker.head_to_head_v
       where competition_id = ${compId}
     `,
+    sql<{ group_id: string; player_a_id: string; player_b_id: string }[]>`
+      select group_id, player_a_id, player_b_id
+      from ierne_snooker.fixtures
+      where competition_id = ${compId}
+        and stage = 'group'
+        and result_approved = false
+        and score_a is not null
+        and score_b is not null
+    `,
   ]);
 
   const playerMap = buildPlayerMap(players);
@@ -861,6 +891,12 @@ async function handleGetStandings(req: Request): Promise<Response> {
   }
 
   const h2hAll = h2h as unknown as HeadToHeadRow[];
+  const unapprovedPlayers = new Set<string>();
+  for (const fx of unapproved as unknown as { group_id: string; player_a_id: string; player_b_id: string }[]) {
+    const gid = fx.group_id ?? "";
+    if (fx.player_a_id) unapprovedPlayers.add(`${gid}|${fx.player_a_id}`);
+    if (fx.player_b_id) unapprovedPlayers.add(`${gid}|${fx.player_b_id}`);
+  }
 
   const groupsOut = (groups as GroupRow[])
     .filter((g) => g.group_id !== KNOCKOUT_GROUP_ID)
@@ -890,6 +926,7 @@ async function handleGetStandings(req: Request): Promise<Response> {
         D: r.drawn,
         "+/-": r.frameDiff,
         Pts: r.points,
+        unapproved: unapprovedPlayers.has(`${grp.group_id}|${r.playerId}`),
       }));
       return { groupId: grp.group_id, name: grp.name, rows };
     });
@@ -1051,12 +1088,14 @@ const ADMIN_POST_ACTIONS = new Set([
   "deleteFixture",
   "deleteHandicap",
   "deletePlayer",
+  "approveFixtureResult",
   "issueInvite",
   "listInvites",
   "revokeInvite",
   "listAccounts",
   "disableAccount",
   "setAccountAdmin",
+  "setAccountApprover",
 ]);
 
 const PUBLIC_POST_ACTIONS = new Set([
@@ -1198,6 +1237,22 @@ async function requireAdmin(envelope: PostEnvelope): Promise<Response | null> {
   return unauthorizedResponse(
     "Invalid or expired admin session. Unlock Admin Mode again from the menu.",
   );
+}
+
+/** Admin PIN, an admin account, or an approver account. */
+async function requireScoreApprover(envelope: PostEnvelope): Promise<Response | null> {
+  const raw = envelope.adminToken;
+  const token = typeof raw === "string" ? raw.trim() : "";
+  if (token && (await verifyAdminToken(token))) return null;
+  const session = typeof envelope.sessionToken === "string" ? envelope.sessionToken.trim() : "";
+  if (session) {
+    const actor = await readPlayerSession(db(), session);
+    if (actor?.isAdmin || actor?.isApprover) return null;
+  }
+  if (!token && !session) {
+    return unauthorizedResponse("Sign in as an approver, or unlock Admin Mode.");
+  }
+  return unauthorizedResponse("This score can only be approved by an approver or an admin.");
 }
 
 async function handleAdminLogin(data: Record<string, unknown>): Promise<Response> {
@@ -1569,12 +1624,20 @@ async function requireResultEditor(
     }
     return unauthorizedResponse("Sign in as a player in this match, or unlock Admin Mode.");
   }
+  if (player.isAdmin || player.isApprover) {
+    return {
+      admin: false,
+      playerAId: fixture.player_a_id,
+      playerBId: fixture.player_b_id,
+      editorPlayerId: player.playerId,
+    };
+  }
   if (player.playerId !== fixture.player_a_id && player.playerId !== fixture.player_b_id) {
     return errorResponse("You can only report results for your own matches.", 403);
   }
   if (!withinResultWindow(fixture.result_posted_at)) {
     return errorResponse(
-      "This result is locked. Only an admin can change it after 24 hours.",
+      "This result is locked. Only an admin or an approver can change it after 24 hours.",
       403,
     );
   }
@@ -1600,6 +1663,22 @@ async function resultEnteredByLabel(
   if (name) return name;
   const actor = await readPlayerSession(sql, sessionToken);
   return actor?.handle || "Player";
+}
+
+async function resultApprovedByLabel(envelope: PostEnvelope): Promise<string> {
+  const session = typeof envelope.sessionToken === "string" ? envelope.sessionToken.trim() : "";
+  if (session) {
+    const actor = await readPlayerSession(db(), session);
+    if (actor && (actor.isAdmin || actor.isApprover) && actor.playerId) {
+      const rows = await db()<{ player_name: string }[]>`
+        select player_name from ierne_snooker.players where player_id = ${actor.playerId}
+      `;
+      const name = String(rows[0]?.player_name || "").trim();
+      if (name) return name;
+      if (actor.handle) return actor.handle;
+    }
+  }
+  return "Admin";
 }
 
 async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Response> {
@@ -1636,13 +1715,46 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
     envelope.sessionToken,
   );
   const sql = db();
+  const actor = gate.admin ? null : await readPlayerSession(sql, envelope.sessionToken);
+  const privileged = gate.admin || !!actor?.isAdmin || !!actor?.isApprover;
+  const approved = clearing || privileged;
+  const priorRows = await sql<{
+    result_entered_by: string | null;
+    result_approved: boolean;
+    result_approved_by: string | null;
+  }[]>`
+    select result_entered_by, result_approved, result_approved_by
+    from ierne_snooker.fixtures
+    where fixture_id = ${fixtureId}::uuid
+  `;
+  const priorEntered = String(priorRows[0]?.result_entered_by || "").trim();
+  const priorByPlayer = priorEntered !== "" && priorEntered !== "Admin";
+  const subsequentApproval = approved && !clearing && priorByPlayer &&
+    priorRows[0]?.result_approved === false && privileged;
+  const preservePlayerEntry = approved && !clearing && priorByPlayer &&
+    priorRows[0]?.result_approved === true;
+  const keepExistingApproval = preservePlayerEntry &&
+    String(priorRows[0]?.result_approved_by || "").trim() !== "";
+  const enteredByToStore = subsequentApproval || preservePlayerEntry ? priorEntered : enteredBy;
+  const approvedBy = subsequentApproval ? await resultApprovedByLabel(envelope) : null;
   if (hasMatchDate) {
     await sql`
       update ierne_snooker.fixtures
       set score_a = ${sa},
           score_b = ${sb},
           match_date = ${matchDateVal},
-          result_entered_by = ${enteredBy},
+          result_entered_by = ${enteredByToStore},
+          result_approved = ${approved},
+          result_approved_by = case
+            when ${subsequentApproval} then ${approvedBy}
+            when ${keepExistingApproval} then result_approved_by
+            else null
+          end,
+          result_approved_at = case
+            when ${subsequentApproval} then now()
+            when ${keepExistingApproval} then result_approved_at
+            else null
+          end,
           result_posted_at = case
             when ${sa !== null && sb !== null} then coalesce(result_posted_at, now())
             when ${sa === null && sb === null} then null
@@ -1656,7 +1768,18 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
       update ierne_snooker.fixtures
       set score_a = ${sa},
           score_b = ${sb},
-          result_entered_by = ${enteredBy},
+          result_entered_by = ${enteredByToStore},
+          result_approved = ${approved},
+          result_approved_by = case
+            when ${subsequentApproval} then ${approvedBy}
+            when ${keepExistingApproval} then result_approved_by
+            else null
+          end,
+          result_approved_at = case
+            when ${subsequentApproval} then now()
+            when ${keepExistingApproval} then result_approved_at
+            else null
+          end,
           result_posted_at = case
             when ${sa !== null && sb !== null} then coalesce(result_posted_at, now())
             when ${sa === null && sb === null} then null
@@ -1667,7 +1790,39 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
     `;
   }
   if (clearing) await clearFixtureResultSlip(fixtureId);
-  return jsonResponse({ success: true });
+  return jsonResponse({ success: true, resultApproved: approved });
+}
+
+async function handleApproveFixtureResult(envelope: PostEnvelope): Promise<Response> {
+  const fixtureId = String(envelope.data.fixtureId ?? "").trim();
+  if (!fixtureId) return errorResponse("fixtureId required");
+  const sql = db();
+  const rows = await sql<{
+    score_a: number | null;
+    score_b: number | null;
+    result_entered_by: string | null;
+  }[]>`
+    select score_a, score_b, result_entered_by
+    from ierne_snooker.fixtures
+    where fixture_id = ${fixtureId}::uuid
+  `;
+  const fixture = rows[0];
+  if (!fixture) return errorResponse("Fixture not found", 404);
+  if (fixture.score_a == null || fixture.score_b == null) {
+    return errorResponse("There is no score to approve");
+  }
+  const entered = String(fixture.result_entered_by || "").trim();
+  const byPlayer = entered !== "" && entered !== "Admin";
+  const approvedBy = byPlayer ? await resultApprovedByLabel(envelope) : null;
+  await sql`
+    update ierne_snooker.fixtures
+    set result_approved = true,
+        result_approved_by = ${approvedBy},
+        result_approved_at = case when ${approvedBy !== null} then now() else result_approved_at end,
+        updated_at = now()
+    where fixture_id = ${fixtureId}::uuid
+  `;
+  return jsonResponse({ success: true, resultApproved: true });
 }
 
 async function handleUpsertBreak(envelope: PostEnvelope): Promise<Response> {
@@ -1747,7 +1902,10 @@ async function handleGetResultSlip(envelope: PostEnvelope): Promise<Response> {
   const fixtureId = String(envelope.data.fixtureId ?? "").trim();
   if (!fixtureId) return errorResponse("fixtureId required");
   const gate = await requireResultEditor(envelope, fixtureId);
-  if (gate instanceof Response) return gate;
+  if (gate instanceof Response) {
+    const approverDenied = await requireScoreApprover(envelope);
+    if (approverDenied) return gate;
+  }
   const sql = db();
   const rows = await sql<{ result_slip_path: string | null; result_slip_mime: string | null }[]>`
     select result_slip_path, result_slip_mime
@@ -1929,6 +2087,8 @@ async function dispatchAdminAccount(envelope: PostEnvelope): Promise<Response> {
         return accountResult(await disableAccount(sql, envelope.data));
       case "setAccountAdmin":
         return accountResult(await setAccountAdmin(sql, envelope.data));
+      case "setAccountApprover":
+        return accountResult(await setAccountApprover(sql, envelope.data));
       default:
         return errorResponse(`Unknown action: ${envelope.action}`, 400);
     }
@@ -1959,7 +2119,9 @@ async function dispatchPost(envelope: PostEnvelope, req: Request): Promise<Respo
     return errorResponse(`Unknown action: ${envelope.action}`, 400);
   }
   if (envelope.action !== "adminLogin") {
-    const denied = await requireAdmin(envelope);
+    const denied = envelope.action === "approveFixtureResult"
+      ? await requireScoreApprover(envelope)
+      : await requireAdmin(envelope);
     if (denied) return denied;
   }
   if (
@@ -1968,7 +2130,8 @@ async function dispatchPost(envelope: PostEnvelope, req: Request): Promise<Respo
     envelope.action === "revokeInvite" ||
     envelope.action === "listAccounts" ||
     envelope.action === "disableAccount" ||
-    envelope.action === "setAccountAdmin"
+    envelope.action === "setAccountAdmin" ||
+    envelope.action === "setAccountApprover"
   ) {
     return dispatchAdminAccount(envelope);
   }
@@ -1982,6 +2145,7 @@ async function dispatchPost(envelope: PostEnvelope, req: Request): Promise<Respo
     case "upsertCompetitionGroup": return handleUpsertCompetitionGroup(envelope.data);
     case "deleteCompetitionGroup": return handleDeleteCompetitionGroup(envelope.data);
     case "upsertFixture": return handleUpsertFixture(envelope.data);
+    case "approveFixtureResult": return handleApproveFixtureResult(envelope);
     case "deleteFixture": return handleDeleteFixture(envelope.data);
     case "deleteHandicap": return handleDeleteHandicap(envelope.data);
     case "deletePlayer": return handleDeletePlayer(envelope.data);

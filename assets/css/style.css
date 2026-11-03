@@ -150,3 +150,8 @@ button.player-inline-link:active {
 .navbar .navbar__menu li[hidden] {
   display: none !important;
 }
+
+.admin-unlock-dialog__msg.msg--success {
+  color: #169179;
+  font-weight: 600;
+}

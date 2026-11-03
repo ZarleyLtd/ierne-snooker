@@ -86,6 +86,11 @@ var AdminAccountsPage = (function () {
           me.toggleAdmin();
         });
       }
+      if (this.el.toggleApprover) {
+        this.el.toggleApprover.addEventListener('click', function () {
+          me.toggleApprover();
+        });
+      }
       if (this.el.resetBtn) {
         this.el.resetBtn.addEventListener('click', function () {
           me.issueReset();
@@ -115,6 +120,7 @@ var AdminAccountsPage = (function () {
         accountMsg: document.getElementById('adminAcAccountMsg'),
         accountHint: document.getElementById('adminAcAccountHint'),
         toggleAdmin: document.getElementById('adminAcToggleAdmin'),
+        toggleApprover: document.getElementById('adminAcToggleApprover'),
         resetBtn: document.getElementById('adminAcReset'),
         disableBtn: document.getElementById('adminAcDisable'),
         resetBox: document.getElementById('adminAcResetBox'),
@@ -182,7 +188,11 @@ var AdminAccountsPage = (function () {
           if (account.playerName) meta.push(account.playerName);
           if (account.disabled) meta.push('disabled');
           if (account.lastSeenAt) meta.push('last seen ' + formatWhen(account.lastSeenAt));
-          var badge = account.isAdmin ? 'Admin' : (account.disabled ? 'Disabled' : '');
+          var badge = account.isAdmin
+            ? 'Admin'
+            : account.isApprover
+              ? 'Approver'
+              : (account.disabled ? 'Disabled' : '');
           return (
             '<button type="button" class="admin-ac-row" data-account="' + esc(account.id) + '">' +
             '<span class="admin-ac-row__text">' +
@@ -273,18 +283,22 @@ var AdminAccountsPage = (function () {
       if (this.el.accountTitle) this.el.accountTitle.textContent = account.handle;
       var bits = [];
       if (account.playerName) bits.push(account.playerName);
-      bits.push(account.isAdmin ? 'Admin' : 'Player');
+      bits.push(account.isAdmin ? 'Admin' : account.isApprover ? 'Approver' : 'Player');
       if (account.disabled) bits.push('Disabled');
       if (account.lastSeenAt) bits.push('last seen ' + formatWhen(account.lastSeenAt));
       if (this.el.accountMeta) this.el.accountMeta.textContent = bits.join(' · ');
       if (this.el.accountHint) {
         this.el.accountHint.textContent = account.disabled
           ? 'This account is disabled. They are signed out and cannot connect.'
-          : 'Admin accounts can manage the league while they are signed in. A password reset code is used once and lasts 24 hours.';
+          : 'Admin accounts can manage the league while they are signed in. Approver accounts can enter, edit, and approve scores for any match. Those scores are approved immediately. They cannot use the other admin tools. A password reset code is used once and lasts 24 hours.';
       }
       if (this.el.toggleAdmin) {
         this.el.toggleAdmin.textContent = account.isAdmin ? 'Remove admin' : 'Make admin';
         this.el.toggleAdmin.hidden = !!account.disabled;
+      }
+      if (this.el.toggleApprover) {
+        this.el.toggleApprover.textContent = account.isApprover ? 'Remove approver' : 'Make approver';
+        this.el.toggleApprover.hidden = !!account.disabled;
       }
       if (this.el.resetBtn) this.el.resetBtn.hidden = !!account.disabled;
       if (this.el.disableBtn) this.el.disableBtn.hidden = !!account.disabled;
@@ -303,6 +317,9 @@ var AdminAccountsPage = (function () {
       var prompt = next
         ? 'Make ' + account.handle + ' an admin? They will be able to manage the league while signed in.'
         : 'Remove admin from ' + account.handle + '? They will keep their player account.';
+      if (next && account.isApprover) {
+        prompt = 'Make ' + account.handle + ' an admin instead of an approver? They will be able to manage the league while signed in.';
+      }
       if (!window.confirm(prompt)) return;
       this.dialogMsg(next ? 'Updating admin…' : 'Removing admin…', false);
       ApiClient.post('setAccountAdmin', { accountId: account.id, isAdmin: next })
@@ -318,6 +335,35 @@ var AdminAccountsPage = (function () {
         })
         .catch(function (err) {
           me.dialogMsg(err.message || 'Could not update admin', true);
+        });
+    },
+
+    toggleApprover: function () {
+      var me = this;
+      var account = this.accountById(this.openAccountId);
+      if (!account) return;
+      var next = !account.isApprover;
+      var prompt = next
+        ? 'Make ' + account.handle + ' an approver? They will be able to enter, edit, and approve scores for any match. Those scores are approved immediately. They will not be able to use the other admin tools.'
+        : 'Remove approver from ' + account.handle + '? They will keep their player account.';
+      if (next && account.isAdmin) {
+        prompt = 'Make ' + account.handle + ' an approver instead of an admin? They will be able to enter, edit, and approve scores, and will lose the other admin tools.';
+      }
+      if (!window.confirm(prompt)) return;
+      this.dialogMsg(next ? 'Updating approver…' : 'Removing approver…', false);
+      ApiClient.post('setAccountApprover', { accountId: account.id, isApprover: next })
+        .then(function () {
+          return me.load();
+        })
+        .then(function () {
+          var text = next
+            ? account.handle + ' is now an approver.'
+            : account.handle + ' is no longer an approver.';
+          me.dialogMsg(text, false);
+          me.flash(text, false);
+        })
+        .catch(function (err) {
+          me.dialogMsg(err.message || 'Could not update approver', true);
         });
     },
 

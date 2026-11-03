@@ -27,6 +27,10 @@
   line-height: 1.3;
 }
 
+.fixture-result-approved-by {
+  margin-top: -0.45rem;
+}
+
 .league-label.is-selected {
   font-weight: 700;
   border: 3px solid #169179;
@@ -211,8 +215,10 @@
   display: none;
 }
 
+.fixture-result-form > .fixture-result-approve,
 .fixture-result-form > .fixture-result-dialog__heading,
 .fixture-result-form > .fixture-result-entered-by,
+.fixture-result-form > .fixture-result-approved-by,
 .fixture-result-form > .fixture-result-date-row,
 .fixture-result-form > #fixture-result-msg,
 .fixture-result-form > .fixture-result-actions {
@@ -436,6 +442,54 @@
   min-width: 7rem !important;
   max-width: 7rem !important;
   flex: 0 0 7rem !important;
+}
+
+.fixture-result-approve[hidden],
+#fixture-result-save[hidden] {
+  display: none !important;
+}
+
+.fixture-result-approve {
+  justify-self: end;
+  margin: 0;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid #169179;
+  border-radius: calc(var(--border-radius) * 4);
+  background: #169179;
+  color: #fff;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.fixture-result-approve:hover,
+.fixture-result-approve:focus {
+  background: #127a66;
+  border-color: #127a66;
+  color: #fff;
+}
+
+.fixture-vs-btn.is-unapproved,
+.fixture-vs-static.is-unapproved,
+.results-score-btn.is-unapproved,
+.results-score.is-unapproved {
+  color: #169179 !important;
+  border-color: #169179 !important;
+  box-shadow: 0 0 0 2px rgba(22, 145, 121, 0.35);
+}
+
+.standings-line--unapproved {
+  color: #169179;
+}
+
+.standings-pending-note {
+  margin: 0.35rem 0 1rem;
+  padding: 0;
+  text-align: left;
+  color: #169179;
+  font-style: italic;
+  font-size: 0.9em;
 }
 
 .fixture-result-dialog .result-slip-btn {
