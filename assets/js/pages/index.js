@@ -40,6 +40,7 @@ const IndexPage = {
     var card = document.createElement('article');
     card.className = 'home-comp-card home-comp-card--league';
     card.setAttribute('data-comp-id', comp.compId);
+    card.setAttribute('data-help', 'home.card');
 
     var html = '';
     html += '<p class="align-center home-comp-card__subtitle">League stage &mdash; current leaders</p>';
@@ -70,6 +71,7 @@ const IndexPage = {
     var card = document.createElement('article');
     card.className = 'home-comp-card home-comp-card--knockout';
     card.setAttribute('data-comp-id', comp.compId);
+    card.setAttribute('data-help', 'home.card');
 
     var bracket = document.createElement('div');
     bracket.className = 'home-comp-card__bracket ko-bracket-page';

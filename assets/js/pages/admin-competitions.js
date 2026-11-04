@@ -236,6 +236,7 @@ var AdminCompetitionsPage = (function () {
         };
       });
       this.renderActionList(box, items, {
+        helpKey: 'adminComps.knockoutStage',
         onClick: function (id) {
           var child = me.competitions.find(function (x) {
             return x.compId === id;
@@ -310,6 +311,8 @@ var AdminCompetitionsPage = (function () {
           return (
             '<button type="button" class="admin-player-picks__row admin-item-list__row' +
             current +
+            '" data-help="' +
+            esc(opts.helpKey || 'adminComps.row') +
             '" data-id="' +
             esc(item.id) +
             '">' +
@@ -340,7 +343,7 @@ var AdminCompetitionsPage = (function () {
           emptyText: 'No competitions yet.',
           emptyActionHtml:
             '<p style="margin:0.75em 0 0;text-align:center;">' +
-            '<button type="button" class="btn" data-empty-action>+ Add Comp</button></p>',
+            '<button type="button" class="btn" data-empty-action data-help="adminComps.add">+ Add Comp</button></p>',
           onEmptyAction: function () {
             me.openCreate();
           },
@@ -356,6 +359,7 @@ var AdminCompetitionsPage = (function () {
         };
       });
       this.renderActionList(box, items, {
+        helpKey: 'adminComps.row',
         onClick: function (id) {
           var comp = me.competitions.find(function (x) {
             return x.compId === id;
@@ -635,6 +639,7 @@ var AdminCompetitionsPage = (function () {
         };
       });
       this.renderActionList(box, items, {
+        helpKey: 'adminComps.group',
         emptyText: 'No groups yet.',
         onClick: function (id) {
           var g = me.groups.find(function (x) {

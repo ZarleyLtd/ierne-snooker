@@ -20,6 +20,7 @@ const HandicapsPage = {
       
       sortedPlayers.forEach(r => {
         const tr = document.createElement('tr');
+        tr.setAttribute('data-help', 'handicaps.row');
         tr.innerHTML = `
           <td>${r['Player Name']}</td>
           <td>${r['Handicap']}</td>

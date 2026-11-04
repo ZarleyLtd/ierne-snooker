@@ -379,6 +379,7 @@ var FixturesPage = {
       KnockoutRounds.isWinnerOfPlayerId(playerId);
     var el = document.createElement('span');
     el.className = 'fixture-player-name';
+    el.setAttribute('data-help', 'chrome.playerHandicap');
     el.textContent = name;
     el.style.flex = '1';
     el.style.textAlign = align === 'left' ? 'left' : 'right';
@@ -842,6 +843,7 @@ var FixturesPage = {
         btn.className = 'fixture-frame-rack';
         if (inverted) btn.classList.add('fixture-frame-rack--inverted');
         btn.setAttribute('data-rack-action', action);
+        btn.setAttribute('data-help', 'result.frames');
         btn.setAttribute('aria-label', label);
         var icon = document.createElement('span');
         icon.className = 'fixture-frame-rack-icon';
@@ -1065,11 +1067,13 @@ var FixturesPage = {
       h3.style.marginBottom = '0.5em';
       h3.style.fontWeight = 'bold';
       h3.style.textAlign = 'center';
+      h3.setAttribute('data-help', 'fixtures.week');
       container.appendChild(h3);
 
       grouped[week].forEach(function (match) {
         var div = document.createElement('div');
         div.className = 'fixture-row';
+        div.setAttribute('data-help', 'fixtures.match');
         div.style.display = 'flex';
         div.style.justifyContent = 'center';
         div.style.alignItems = 'center';
@@ -1131,6 +1135,7 @@ var FixturesPage = {
           center.type = 'button';
           center.className = 'fixture-vs-btn';
           center.textContent = 'V';
+          center.setAttribute('data-help', 'fixtures.enter');
           center.setAttribute(
             'aria-label',
             'Enter result for ' + nameA + ' vs ' + nameB
@@ -1141,6 +1146,7 @@ var FixturesPage = {
         } else {
           center = document.createElement('span');
           center.className = 'fixture-vs-static';
+          center.setAttribute('data-help', 'fixtures.closed');
           center.textContent = 'V';
           if (self.isAdmin() && fid && !resultReady) {
             center.setAttribute(

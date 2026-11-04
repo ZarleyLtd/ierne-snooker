@@ -37,6 +37,7 @@ const TopBreaksPage = {
       breaks.forEach(function(b) {
         const li = document.createElement('li');
         li.className = 'top-breaks-list__item';
+        li.setAttribute('data-help', 'breaks.row');
         const value = document.createElement('span');
         value.className = 'top-breaks-list__value';
         value.textContent = b['Break'];

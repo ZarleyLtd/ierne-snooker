@@ -234,10 +234,12 @@ var ResultsPage = {
       h3.style.marginBottom = '0.5em';
       h3.style.fontWeight = 'bold';
       h3.style.textAlign = 'center';
+      h3.setAttribute('data-help', 'fixtures.week');
       container.appendChild(h3);
 
       grouped[week].forEach(function (match) {
         var div = document.createElement('div');
+        div.setAttribute('data-help', 'fixtures.match');
         div.style.display = 'flex';
         div.style.justifyContent = 'center';
         div.style.alignItems = 'center';
@@ -327,6 +329,7 @@ var ResultsPage = {
           resultEl = document.createElement('button');
           resultEl.type = 'button';
           resultEl.className = 'results-score-btn';
+          resultEl.setAttribute('data-help', 'results.score');
           resultEl.textContent = '[' + resultStr + ']';
           resultEl.setAttribute(
             'aria-label',
@@ -343,6 +346,7 @@ var ResultsPage = {
         } else {
           resultEl = document.createElement('span');
           resultEl.className = 'results-score';
+          resultEl.setAttribute('data-help', 'results.scoreStatic');
           resultEl.textContent = '[' + resultStr + ']';
           resultEl.style.flex = '0 0 auto';
           resultEl.style.fontWeight = 'bold';
