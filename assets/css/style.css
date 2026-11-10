@@ -156,3 +156,141 @@ button.player-inline-link:active {
   color: #169179;
   font-weight: 600;
 }
+
+/* Later rounds: absolute tops from centre-pair slot-edge drivers */
+.ko-bracket-stage__list--feeder {
+  position: relative;
+  width: 100%;
+}
+
+.ko-bracket-stage__list--feeder > * {
+  box-sizing: border-box;
+}
+
+/* Double-eliminator: loser stubs + inline Grand Final stub */
+.ko-bracket-match {
+  position: relative;
+  overflow: visible;
+}
+
+.ko-bracket-stage:has(.ko-bracket-match__exits) {
+  padding-right: 2rem;
+}
+
+.ko-bracket-match__exits {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-left: 0.15rem;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ko-bracket-match__loser-stub {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.ko-bracket-match__loser-stub-line {
+  display: block;
+  width: 0.85rem;
+  height: 0;
+  border-top: 2px solid #169179;
+}
+
+.ko-bracket-match__loser-stub-label {
+  font-size: 0.7rem;
+  font-variation-settings: "wght" 600;
+  color: #169179;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* WF/LF: match + --- L7 --- + Grand Final stub (vertically centered) */
+.ko-bracket-stage:has(.ko-bracket-final-exit) {
+  flex-basis: min(98vw, 21rem);
+  padding-right: 0.25rem;
+}
+
+.ko-bracket-final-exit {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  gap: 0;
+}
+
+.ko-bracket-final-exit > .ko-bracket-match:not(.ko-bracket-match--gf-stub) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.ko-bracket-final-exit__bridge {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0.2rem;
+  margin: 0 0.05rem;
+}
+
+.ko-bracket-final-exit__bridge-line {
+  display: block;
+  width: 1rem;
+  height: 2px;
+  background: #169179;
+  flex: 0 0 1rem;
+}
+
+.ko-bracket-final-exit__bridge-label {
+  font-size: 0.7rem;
+  font-variation-settings: "wght" 600;
+  color: #169179;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ko-bracket-match--gf-stub {
+  flex: 0 0 auto;
+  width: 5.4rem;
+  min-width: 5.4rem;
+  min-height: 4.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 145, 121, 0.12);
+}
+
+.ko-bracket-match--gf-stub .ko-bracket-match__row {
+  justify-content: center;
+  align-items: center;
+  border-bottom: none;
+  min-height: 4.4rem;
+  width: 100%;
+  padding: 0.25rem 0.3rem;
+}
+
+.ko-bracket-match--gf-stub .ko-bracket-match__name {
+  text-align: center;
+  font-variation-settings: "wght" 600;
+  color: #169179;
+  font-size: 0.72rem;
+  white-space: normal;
+  line-height: 1.2;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.ko-bracket-match--bye .ko-bracket-match__score {
+  opacity: 0.45;
+}
+
+.ko-bracket-track-block + .ko-bracket-track-block {
+  margin-top: 1.5rem;
+}

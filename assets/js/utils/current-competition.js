@@ -13,18 +13,41 @@ var CurrentCompetition = (function () {
   var _ready = false;
   var _initPromise = null;
 
+  function normalizeCompetitionType(compOrType) {
+    if (!compOrType) return 'league';
+    var raw =
+      typeof compOrType === 'string'
+        ? compOrType
+        : compOrType.competitionType || compOrType.competition_type || 'league';
+    var type = String(raw).trim().toLowerCase();
+    if (type === 'knockout') return 'knockout';
+    if (type === 'double-eliminator' || type === 'double_eliminator' || type === 'doubleelim') {
+      return 'double-eliminator';
+    }
+    return 'league';
+  }
+
   function isKnockoutComp(comp) {
     if (!comp) return false;
-    var type = String(comp.competitionType || comp.competition_type || '')
-      .trim()
-      .toLowerCase();
-    if (type === 'knockout') return true;
-    if (type === 'league') return false;
+    var type = normalizeCompetitionType(comp);
+    if (type === 'knockout' || type === 'double-eliminator') return true;
+    if (type === 'league') {
+      var explicit = String(comp.competitionType || comp.competition_type || '')
+        .trim()
+        .toLowerCase();
+      if (explicit === 'league') return false;
+    }
     var id = String(comp.compId || comp.competition_id || '').toLowerCase();
     if (id.indexOf('knockout') !== -1 || id.indexOf('-ko') !== -1) return true;
     var name = String(comp.name || '');
-    if (/\bk\/o\b/i.test(name) || /knockout/i.test(name)) return true;
+    if (/\bk\/o\b/i.test(name) || /knockout/i.test(name) || /double[- ]?elim/i.test(name)) {
+      return true;
+    }
     return false;
+  }
+
+  function isDoubleEliminatorComp(comp) {
+    return !!comp && normalizeCompetitionType(comp) === 'double-eliminator';
   }
 
   function currentComps() {
@@ -226,8 +249,16 @@ var CurrentCompetition = (function () {
 
     isKnockoutComp: isKnockoutComp,
 
+    isDoubleEliminatorComp: isDoubleEliminatorComp,
+
+    normalizeCompetitionType: normalizeCompetitionType,
+
     isKnockout: function () {
       return isKnockoutComp(_current);
+    },
+
+    isDoubleEliminator: function () {
+      return isDoubleEliminatorComp(_current);
     },
 
     isLeague: function () {

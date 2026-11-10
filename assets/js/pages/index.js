@@ -78,7 +78,13 @@ const IndexPage = {
     card.appendChild(bracket);
 
     if (typeof KnockoutBracket !== 'undefined') {
-      KnockoutBracket.render(bracket, fixtures, { stageNav: true });
+      KnockoutBracket.render(bracket, fixtures, {
+        stageNav: true,
+        doubleElim:
+          typeof CurrentCompetition !== 'undefined' &&
+          CurrentCompetition.isDoubleEliminatorComp &&
+          CurrentCompetition.isDoubleEliminatorComp(comp),
+      });
     } else {
       bracket.innerHTML = '<p class="align-center"><em>Bracket unavailable.</em></p>';
     }

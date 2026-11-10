@@ -41,11 +41,35 @@ var AdminFixturesPage = (function () {
       this.el.bestOfLeague = document.getElementById('adminFxBestOfLeague');
       this.el.bestOfKo = document.getElementById('adminFxBestOfKo');
       this.el.round = document.getElementById('adminFxRound');
+      this.el.customRoundWrap = document.getElementById('adminFxCustomRoundWrap');
+      this.el.customRoundName = document.getElementById('adminFxCustomRoundName');
       this.el.coherenceWarn = document.getElementById('adminFxCoherenceWarn');
       this.el.pa = document.getElementById('adminFxPa');
       this.el.pb = document.getElementById('adminFxPb');
       this.el.deleteBtn = document.getElementById('adminFxDeleteBtn');
       this.el.dialogMsg = document.getElementById('adminFxDialogMsg');
+    },
+
+    normalizeCompType: function (raw) {
+      var t = String(raw || 'league').trim().toLowerCase();
+      if (t === 'knockout') return 'knockout';
+      if (t === 'double-eliminator' || t === 'double_eliminator' || t === 'doubleelim') {
+        return 'double-eliminator';
+      }
+      return 'league';
+    },
+
+    isBracketCompType: function (t) {
+      var n = this.normalizeCompType(t);
+      return n === 'knockout' || n === 'double-eliminator';
+    },
+
+    isPlaceholderPlayerId: function (playerId) {
+      return (
+        KnockoutRounds.isWinnerOfPlayerId(playerId) ||
+        (KnockoutRounds.isLoserOfPlayerId && KnockoutRounds.isLoserOfPlayerId(playerId)) ||
+        String(playerId || '').trim().toLowerCase() === 'bye'
+      );
     },
 
     flash: function (text, isErr) {
@@ -85,8 +109,18 @@ var AdminFixturesPage = (function () {
     displayFixturePlayerName: function (f, slot) {
       var id = slot === 'b' ? f.playerBId : f.playerAId;
       var fallback = slot === 'b' ? f['Player B'] : f['Player A'];
+      var fixtures = this.fixturesLoaded || [];
       if (KnockoutRounds.isWinnerOfPlayerId(id)) {
-        return KnockoutRounds.winnerOfDisplayLabel(KnockoutRounds.roundCodeFromWinnerOfId(id));
+        return KnockoutRounds.winnerOfDisplayLabel(
+          KnockoutRounds.roundCodeFromWinnerOfId(id),
+          fixtures
+        );
+      }
+      if (KnockoutRounds.isLoserOfPlayerId && KnockoutRounds.isLoserOfPlayerId(id)) {
+        return KnockoutRounds.loserOfDisplayLabel(
+          KnockoutRounds.roundCodeFromLoserOfId(id),
+          fixtures
+        );
       }
       return fallback || '';
     },
@@ -129,8 +163,9 @@ var AdminFixturesPage = (function () {
     },
 
     knockoutPlayerCount: function () {
+      var me = this;
       return (this.compPlayers || []).filter(function (p) {
-        return p && p.playerId && !KnockoutRounds.isWinnerOfPlayerId(p.playerId);
+        return p && p.playerId && !me.isPlaceholderPlayerId(p.playerId);
       }).length;
     },
 
@@ -139,7 +174,8 @@ var AdminFixturesPage = (function () {
       if (!rs) return;
       var keep = selectedStageId != null ? String(selectedStageId) : rs.value;
       rs.innerHTML = '';
-      (KnockoutRounds.adminStagesForPlayerCount(this.knockoutPlayerCount()) || []).forEach(
+      var compType = this.currentCompType || 'knockout';
+      (KnockoutRounds.adminStagesForPlayerCount(this.knockoutPlayerCount(), compType) || []).forEach(
         function (stage) {
           var o = document.createElement('option');
           o.value = stage.id;
@@ -149,6 +185,13 @@ var AdminFixturesPage = (function () {
       );
       if (keep && rs.querySelector('option[value="' + keep + '"]')) rs.value = keep;
       else if (rs.options.length) rs.selectedIndex = 0;
+      this.syncCustomRoundFields();
+    },
+
+    syncCustomRoundFields: function () {
+      var isCp = KnockoutRounds.isCustomPlayoffStage(this.el.round && this.el.round.value);
+      if (this.el.customRoundWrap) this.el.customRoundWrap.hidden = !isCp;
+      if (this.el.customRoundName) this.el.customRoundName.required = !!isCp;
     },
 
     usedMatchNumbersForStage: function (stageId, excludeFixtureId) {
@@ -165,7 +208,7 @@ var AdminFixturesPage = (function () {
     },
 
     nextAvailableMatchNum: function (stageId, excludeFixtureId) {
-      var stage = KnockoutRounds.adminStages().find(function (s) {
+      var stage = (KnockoutRounds.adminStages(this.currentCompType) || []).find(function (s) {
         return s.id === stageId;
       });
       if (!stage) return 1;
@@ -195,13 +238,11 @@ var AdminFixturesPage = (function () {
         return String(x.compId) === String(cid);
       });
       if (!c) return 'league';
-      return String(c.competitionType || 'league').toLowerCase() === 'knockout'
-        ? 'knockout'
-        : 'league';
+      return this.normalizeCompType(c.competitionType || 'league');
     },
 
     isKnockoutComp: function () {
-      return String(this.currentCompType || '').toLowerCase() === 'knockout';
+      return this.isBracketCompType(this.currentCompType);
     },
 
     loadCompGroups: function () {
@@ -215,9 +256,11 @@ var AdminFixturesPage = (function () {
       }
       return ApiClient.get({ action: 'getCompetitionGroups', compId: cid }).then(function (r) {
         var groups = r.groups || [];
-        var isKoComp =
-          r.competition && String(r.competition.competitionType || '').toLowerCase() === 'knockout';
-        me.currentCompType = isKoComp ? 'knockout' : me.compTypeFromList(cid);
+        var fromApi = r.competition
+          ? me.normalizeCompType(r.competition.competitionType || 'league')
+          : me.compTypeFromList(cid);
+        me.currentCompType = fromApi;
+        var isKoComp = me.isBracketCompType(fromApi);
         if (!isKoComp) {
           groups = groups.filter(function (g) {
             return String(g.groupId) !== KNOCKOUT_GROUP_ID;
@@ -225,6 +268,7 @@ var AdminFixturesPage = (function () {
         }
         me.groups = groups;
         me.fillGroupSelect();
+        me.fillRoundSelect();
       });
     },
 
@@ -302,10 +346,11 @@ var AdminFixturesPage = (function () {
     fixtureCoherenceIssues: function () {
       var me = this;
       if (!me.isKnockoutComp()) return [];
+      var isDe = me.normalizeCompType(me.currentCompType) === 'double-eliminator';
 
       var roster = {};
       (me.compPlayers || []).forEach(function (p) {
-        if (p && p.playerId && !KnockoutRounds.isWinnerOfPlayerId(p.playerId)) {
+        if (p && p.playerId && !me.isPlaceholderPlayerId(p.playerId)) {
           roster[p.playerId] = p.playerName || p.playerId;
         }
       });
@@ -315,7 +360,7 @@ var AdminFixturesPage = (function () {
         if (f['Stage'] !== 'knockout') return;
         ['playerAId', 'playerBId'].forEach(function (key) {
           var pid = f[key];
-          if (!pid || KnockoutRounds.isWinnerOfPlayerId(pid)) return;
+          if (!pid || me.isPlaceholderPlayerId(pid)) return;
           appearances[pid] = (appearances[pid] || 0) + 1;
         });
       });
@@ -326,11 +371,13 @@ var AdminFixturesPage = (function () {
           issues.push(roster[pid] + ' is not in any fixture');
         }
       });
-      Object.keys(appearances).forEach(function (pid) {
-        if (appearances[pid] > 1) {
-          issues.push((roster[pid] || pid) + ' appears in more than one fixture');
-        }
-      });
+      if (!isDe) {
+        Object.keys(appearances).forEach(function (pid) {
+          if (appearances[pid] > 1) {
+            issues.push((roster[pid] || pid) + ' appears in more than one fixture');
+          }
+        });
+      }
       return issues;
     },
 
@@ -385,6 +432,57 @@ var AdminFixturesPage = (function () {
       return groupFx.concat(koFx);
     },
 
+    isByePlayerId: function (playerId) {
+      return String(playerId || '').trim().toLowerCase() === 'bye';
+    },
+
+    fixtureHasRealResult: function (f) {
+      if (!f) return false;
+      // Bye pads (structural, unscored) are never "played" matches.
+      if (this.isByePlayerId(f.playerAId) || this.isByePlayerId(f.playerBId)) {
+        return false;
+      }
+      var scoreA = f.scoreA;
+      var scoreB = f.scoreB;
+      if ((scoreA == null || scoreB == null) && f['Result']) {
+        var parts = String(f['Result']).trim().split('-');
+        if (parts.length === 2) {
+          scoreA = parseInt(parts[0], 10);
+          scoreB = parseInt(parts[1], 10);
+        }
+      }
+      // Important: Number(null) === 0, so require scores to be present explicitly.
+      if (scoreA == null || scoreB == null) return false;
+      if (!Number.isFinite(Number(scoreA)) || !Number.isFinite(Number(scoreB))) {
+        return false;
+      }
+      return true;
+    },
+
+    canRegenerateFixtures: function () {
+      var items = this.fixturesLoaded || [];
+      if (!items.length) return false;
+      var me = this;
+      for (var i = 0; i < items.length; i++) {
+        if (me.fixtureHasRealResult(items[i])) return false;
+      }
+      return true;
+    },
+
+    appendGenerateButton: function (parent, regenerate) {
+      var me = this;
+      var genBtn = document.createElement('button');
+      genBtn.type = 'button';
+      genBtn.className = 'btn';
+      genBtn.id = regenerate ? 'adminFxRegenerateBtn' : 'adminFxGenerateBtn';
+      genBtn.setAttribute('data-help', regenerate ? 'adminFx.regenerate' : 'adminFx.generate');
+      genBtn.textContent = regenerate ? 'Re-generate Fixtures' : 'Generate Fixtures';
+      genBtn.addEventListener('click', function () {
+        me.generateFixtures(!!regenerate);
+      });
+      parent.appendChild(genBtn);
+    },
+
     renderList: function () {
       var list = this.el.list;
       if (!list) return;
@@ -392,9 +490,28 @@ var AdminFixturesPage = (function () {
       var me = this;
       var items = this.sortedFixturesForDisplay();
       if (!items.length) {
-        list.innerHTML = '<p class="admin-fixtures-empty"><em>No fixtures for this comp.</em></p>';
+        var empty = document.createElement('div');
+        empty.className = 'admin-fixtures-empty';
+        var emptyText = document.createElement('p');
+        emptyText.innerHTML = '<em>No fixtures for this comp.</em>';
+        empty.appendChild(emptyText);
+        me.appendGenerateButton(empty, false);
+        list.appendChild(empty);
         return;
       }
+
+      // Only offer re-generate when nothing has been played yet.
+      if (me.canRegenerateFixtures()) {
+        var regenBar = document.createElement('div');
+        regenBar.className = 'admin-fixtures-regen';
+        me.appendGenerateButton(regenBar, true);
+        list.appendChild(regenBar);
+      }
+
+      var koStageLabels =
+        typeof KnockoutRounds !== 'undefined' && KnockoutRounds.stageLabelsForFixtures
+          ? KnockoutRounds.stageLabelsForFixtures(items)
+          : {};
 
       var lastGroup = null;
       var lastWeek = null;
@@ -410,7 +527,9 @@ var AdminFixturesPage = (function () {
             lastWeek = null;
             var h = document.createElement('h3');
             h.className = 'admin-fixtures-list__header';
-            h.textContent = KnockoutRounds.stageLabelFor(round);
+            h.textContent =
+              koStageLabels[stageKey] ||
+              KnockoutRounds.stageLabelFor(round, KnockoutRounds.fixtureRoundName(f));
             list.appendChild(h);
           }
         } else {
@@ -477,6 +596,7 @@ var AdminFixturesPage = (function () {
       if (this.el.group) this.el.group.required = !isKo;
       if (this.el.week) this.el.week.required = !isKo;
       if (this.el.round) this.el.round.required = isKo;
+      this.syncCustomRoundFields();
       this.fillGroupSelect(this.el.group && this.el.group.value);
       this.fillPlayerSelects(
         this.el.pa && this.el.pa.value,
@@ -485,10 +605,11 @@ var AdminFixturesPage = (function () {
     },
 
     playersForDropdown: function () {
+      var me = this;
       var stage = this.el.stage && this.el.stage.value;
       var players = (this.compPlayers || []).slice();
       players = players.filter(function (p) {
-        return !KnockoutRounds.isWinnerOfPlayerId(p.playerId);
+        return !me.isPlaceholderPlayerId(p.playerId);
       });
       if (stage === 'group' && this.el.group && this.el.group.value) {
         var gid = String(this.el.group.value);
@@ -528,15 +649,27 @@ var AdminFixturesPage = (function () {
     },
 
     winnerOfOptions: function () {
+      var fixtures = this.fixturesLoaded || [];
       return this.earlierKoRoundCodes().map(function (code) {
         return {
           playerId: KnockoutRounds.winnerOfPlayerId(code),
-          playerName: KnockoutRounds.winnerOfDisplayLabel(code),
+          playerName: KnockoutRounds.winnerOfDisplayLabel(code, fixtures),
         };
       });
     },
 
-    appendPlayerSelectOptions: function (select, players, winnerOpts) {
+    loserOfOptions: function () {
+      if (this.normalizeCompType(this.currentCompType) !== 'double-eliminator') return [];
+      var fixtures = this.fixturesLoaded || [];
+      return this.earlierKoRoundCodes().map(function (code) {
+        return {
+          playerId: KnockoutRounds.loserOfPlayerId(code),
+          playerName: KnockoutRounds.loserOfDisplayLabel(code, fixtures),
+        };
+      });
+    },
+
+    appendPlayerSelectOptions: function (select, players, winnerOpts, loserOpts) {
       if (!select) return;
       if (winnerOpts && winnerOpts.length) {
         var ogWin = document.createElement('optgroup');
@@ -548,6 +681,17 @@ var AdminFixturesPage = (function () {
           ogWin.appendChild(o);
         });
         select.appendChild(ogWin);
+      }
+      if (loserOpts && loserOpts.length) {
+        var ogLose = document.createElement('optgroup');
+        ogLose.label = 'Loser of earlier round';
+        loserOpts.forEach(function (w) {
+          var o = document.createElement('option');
+          o.value = w.playerId;
+          o.textContent = w.playerName;
+          ogLose.appendChild(o);
+        });
+        select.appendChild(ogLose);
       }
       if (players.length) {
         var ogPlayers = document.createElement('optgroup');
@@ -571,7 +715,27 @@ var AdminFixturesPage = (function () {
       var code = KnockoutRounds.roundCodeFromWinnerOfId(playerId);
       var o = document.createElement('option');
       o.value = playerId;
-      o.textContent = KnockoutRounds.winnerOfDisplayLabel(code);
+      o.textContent = KnockoutRounds.winnerOfDisplayLabel(code, this.fixturesLoaded || []);
+      select.appendChild(o);
+    },
+
+    ensureLoserOfOption: function (select, playerId) {
+      if (
+        !select ||
+        !playerId ||
+        !KnockoutRounds.isLoserOfPlayerId ||
+        !KnockoutRounds.isLoserOfPlayerId(playerId)
+      ) {
+        return;
+      }
+      var opts = select.options;
+      for (var i = 0; i < opts.length; i++) {
+        if (opts[i].value === playerId) return;
+      }
+      var code = KnockoutRounds.roundCodeFromLoserOfId(playerId);
+      var o = document.createElement('option');
+      o.value = playerId;
+      o.textContent = KnockoutRounds.loserOfDisplayLabel(code, this.fixturesLoaded || []);
       select.appendChild(o);
     },
 
@@ -580,16 +744,52 @@ var AdminFixturesPage = (function () {
       var pb = this.el.pb;
       if (!pa || !pb) return;
       var players = this.playersForDropdown();
-      var winnerOpts =
-        this.el.stage && this.el.stage.value === 'knockout' ? this.winnerOfOptions() : [];
+      var isKo = this.el.stage && this.el.stage.value === 'knockout';
+      var winnerOpts = isKo ? this.winnerOfOptions() : [];
+      var loserOpts = isKo ? this.loserOfOptions() : [];
       pa.innerHTML = '<option value="">— Select —</option>';
       pb.innerHTML = '<option value="">— Select —</option>';
-      this.appendPlayerSelectOptions(pa, players, winnerOpts);
-      this.appendPlayerSelectOptions(pb, players, winnerOpts);
+      this.appendPlayerSelectOptions(pa, players, winnerOpts, loserOpts);
+      this.appendPlayerSelectOptions(pb, players, winnerOpts, loserOpts);
       this.ensureWinnerOfOption(pa, selectedA);
       this.ensureWinnerOfOption(pb, selectedB);
+      this.ensureLoserOfOption(pa, selectedA);
+      this.ensureLoserOfOption(pb, selectedB);
       if (selectedA) pa.value = selectedA;
       if (selectedB) pb.value = selectedB;
+    },
+
+    generateFixtures: function (regenerate) {
+      var me = this;
+      var compId = me.currentCompId();
+      if (!compId) {
+        me.flash('Select a comp.', true);
+        return;
+      }
+      if (regenerate) {
+        if (!me.canRegenerateFixtures()) {
+          me.flash('Cannot re-generate: one or more fixtures have already been played.', true);
+          return;
+        }
+        var ok = window.confirm(
+          'Re-generate fixtures?\n\nThis will permanently delete all existing fixtures for this competition and create a new set.\n\nOnly continue if no matches have been played.'
+        );
+        if (!ok) return;
+      } else {
+        if (!window.confirm('Generate fixtures for this competition?')) return;
+      }
+      ApiClient.post('generateFixtures', {
+        compId: compId,
+        regenerate: !!regenerate,
+      })
+        .then(function (res) {
+          var verb = res.regenerated ? 'Re-generated' : 'Generated';
+          me.flash(verb + ' ' + (res.created || 0) + ' fixtures.', false);
+          return me.reloadFixtures();
+        })
+        .catch(function (err) {
+          me.flash(err.message || String(err), true);
+        });
     },
 
     normalizeBestOf: function (raw) {
@@ -620,6 +820,7 @@ var AdminFixturesPage = (function () {
         this.el.stage.disabled = false;
       }
       if (this.el.week) this.el.week.value = '';
+      if (this.el.customRoundName) this.el.customRoundName.value = '';
       this.fillRoundSelect();
       if (this.el.round) this.el.round.selectedIndex = 0;
       this.assignInternalMatchNum();
@@ -653,9 +854,13 @@ var AdminFixturesPage = (function () {
           if (this.el.round) this.el.round.selectedIndex = 0;
           this.assignInternalMatchNum(f.fixtureId);
         }
+        if (this.el.customRoundName) {
+          this.el.customRoundName.value = KnockoutRounds.fixtureRoundName(f);
+        }
       } else {
         this.fillGroupSelect(String(f['Group'] || ''));
         if (this.el.week) this.el.week.value = String(f['Game Week'] || '');
+        if (this.el.customRoundName) this.el.customRoundName.value = '';
       }
       if (this.el.deleteBtn) this.el.deleteBtn.hidden = false;
       this.setBestOfFields(f.bestOf != null ? f.bestOf : 3);
@@ -689,11 +894,11 @@ var AdminFixturesPage = (function () {
       }
       var stage = me.el.stage && me.el.stage.value;
       if (stage === 'knockout' && !me.isKnockoutComp()) {
-        me.dialogFlash('Knockout stage is only allowed for knockout comps.', true);
+        me.dialogFlash('Knockout stage is only allowed for knockout / double-eliminator comps.', true);
         return;
       }
       if (stage === 'group' && me.isKnockoutComp()) {
-        me.dialogFlash('Group stage is not used for knockout comps.', true);
+        me.dialogFlash('Group stage is not used for knockout / double-eliminator comps.', true);
         return;
       }
       var pa = me.el.pa && me.el.pa.value;
@@ -724,6 +929,18 @@ var AdminFixturesPage = (function () {
         }
         payload.roundLabel = roundVal;
         payload.sortOrder = KnockoutRounds.sortOrderFor(roundVal);
+        if (KnockoutRounds.isCustomPlayoffStage(me.el.round && me.el.round.value)) {
+          var customName = me.el.customRoundName
+            ? String(me.el.customRoundName.value || '').trim()
+            : '';
+          if (!customName) {
+            me.dialogFlash('Enter a custom round name.', true);
+            return;
+          }
+          payload.roundName = customName;
+        } else {
+          payload.roundName = '';
+        }
       } else {
         var groupId = me.el.group && me.el.group.value;
         var weekRaw = me.el.week && me.el.week.value.trim();
@@ -809,6 +1026,7 @@ var AdminFixturesPage = (function () {
       if (this.el.round) {
         this.el.round.addEventListener('change', function () {
           if (!me._isEditMode) me.assignInternalMatchNum();
+          me.syncCustomRoundFields();
           me.fillPlayerSelects(
             me.el.pa && me.el.pa.value,
             me.el.pb && me.el.pb.value

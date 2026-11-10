@@ -7,7 +7,7 @@ window.IerneHelpCatalog = {
   pages: {
     home: {
       title: 'Home',
-      body: 'The competitions that are current right now. Arrows move between them. A league card shows who leads each group. A knockout card shows the bracket.'
+      body: 'The competitions that are current right now. Arrows move between them. A league card shows who leads each group. A knockout or double-eliminator card shows the bracket.'
     },
     fixtures: {
       title: 'Fixtures',
@@ -183,11 +183,11 @@ window.IerneHelpCatalog = {
     },
     'home.carousel': {
       title: 'Competition card',
-      body: 'A league card names the current leader of each group. A knockout card is the bracket. Use the arrows to change competition.'
+      body: 'A league card names the current leader of each group. A knockout or double-eliminator card is the bracket. Use the arrows to change competition.'
     },
     'home.card': {
       title: 'Competition card',
-      body: 'Leaders for a league, or the bracket when this competition is a knockout or has a knockout stage with matches.'
+      body: 'Leaders for a league, or the bracket when this competition is a knockout, double-eliminator, or has a knockout stage with matches. Double-eliminator shows winners above and losers below.'
     },
     'bracket.prev': {
       title: 'Earlier round',
@@ -441,7 +441,19 @@ window.IerneHelpCatalog = {
     },
     'adminFx.round': {
       title: 'Round',
-      body: 'The knockout round this match belongs to, such as a quarter-final or the final.'
+      body: 'The knockout round this match belongs to, such as a quarter-final or the final. Options depend on how many players are on the roster. Custom Playoff lets you name the round.'
+    },
+    'adminFx.customRound': {
+      title: 'Custom round name',
+      body: 'Shown wherever this round appears, for example “Prelim round”.'
+    },
+    'adminFx.generate': {
+      title: 'Generate Fixtures',
+      body: 'Creates a full set of fixtures for this empty competition: round-robin weeks for a league, or a full bracket for knockout and double-eliminator. Byes are shown as a match against Bye.'
+    },
+    'adminFx.regenerate': {
+      title: 'Re-generate Fixtures',
+      body: 'Deletes the current fixtures and creates a new set. Hidden once any match has been played (bye pads do not count). Always asks for confirmation.'
     },
     'adminFx.bestOf': {
       title: 'Best of',
@@ -466,7 +478,7 @@ window.IerneHelpCatalog = {
 
     'adminComps.add': {
       title: 'Add comp',
-      body: 'Starts a new league or knockout. Save it before you can add groups or players.'
+      body: 'Starts a new league, knockout, or double-eliminator. Save it before you can add groups or players.'
     },
     'adminComps.list': {
       title: 'Competitions',
@@ -486,11 +498,11 @@ window.IerneHelpCatalog = {
     },
     'adminComps.type': {
       title: 'Type',
-      body: 'League comps use groups and a table. Knockout comps use rounds and a roster of players.'
+      body: 'League comps use groups and a table. Knockout and Double-Eliminator comps use rounds and a roster of players. Double-Eliminator has winners and losers brackets.'
     },
     'adminComps.current': {
       title: 'Current',
-      body: 'Makes this the comp the site shows for its type. Only one league and one knockout are current.'
+      body: 'Makes this the comp the site shows. Several comps can be current; the home page carousel switches between them.'
     },
     'adminComps.addGroup': {
       title: 'Add group',
@@ -510,7 +522,7 @@ window.IerneHelpCatalog = {
     },
     'adminComps.players': {
       title: 'Players',
-      body: 'Tick the players on this knockout. The ticks are kept when you save the comp. A player already on another current roster is not listed.'
+      body: 'Tick the players on this knockout or double-eliminator. The ticks are kept when you save the comp. A player already on another current roster is not listed.'
     },
     'adminComps.delete': {
       title: 'Delete',
@@ -522,7 +534,7 @@ window.IerneHelpCatalog = {
     },
     'adminComps.save': {
       title: 'Save comp',
-      body: 'Writes the name, type, current flag, and, on a knockout, the ticked players.'
+      body: 'Writes the name, type, current flag, and, on a knockout or double-eliminator, the ticked players.'
     },
     'adminComps.groupId': {
       title: 'Group id',

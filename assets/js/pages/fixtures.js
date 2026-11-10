@@ -974,11 +974,16 @@ var FixturesPage = {
       }
 
       var winnersByCode = {};
+      var losersByCode = {};
       var sectionLabels = null;
       var grouped;
+      var winnerIdsByCode = {};
       if (isKnockout && typeof KnockoutRounds !== 'undefined') {
         winnersByCode = KnockoutRounds.buildRoundWinnersMap(data);
-        var winnerIdsByCode = KnockoutRounds.buildRoundWinnerIdsMap
+        losersByCode = KnockoutRounds.buildRoundLosersMap
+          ? KnockoutRounds.buildRoundLosersMap(data)
+          : {};
+        winnerIdsByCode = KnockoutRounds.buildRoundWinnerIdsMap
           ? KnockoutRounds.buildRoundWinnerIdsMap(data)
           : {};
         var koGroup = KnockoutRounds.groupForList(upcoming);
@@ -990,8 +995,10 @@ var FixturesPage = {
       this.renderGroups(container, grouped.grouped, grouped.orderedWeeks, {
         isKnockout: isKnockout,
         winnersByCode: winnersByCode,
-        winnerIdsByCode: typeof winnerIdsByCode !== 'undefined' ? winnerIdsByCode : {},
+        losersByCode: losersByCode,
+        winnerIdsByCode: winnerIdsByCode,
         sectionLabels: sectionLabels,
+        fixtures: data,
       });
     } catch (error) {
       console.error('Failed to load fixtures:', error);
@@ -1013,35 +1020,57 @@ var FixturesPage = {
     return { grouped: grouped, orderedWeeks: orderedWeeks };
   },
 
-  knockoutWeekLabel: function (week) {
+  knockoutWeekLabel: function (week, roundName) {
     if (typeof KnockoutRounds !== 'undefined') {
-      return KnockoutRounds.labelFor(week);
+      return KnockoutRounds.labelFor(week, roundName);
     }
     return this.KO_LABELS[week] || week;
   },
 
-  knockoutPlayerLabel: function (match, slot, winnersByCode) {
+  knockoutPlayerLabel: function (match, slot, winnersByCode, losersByCode, fixtures) {
     if (typeof KnockoutRounds !== 'undefined') {
-      return KnockoutRounds.resolvedPlayerName(match, slot, winnersByCode);
+      return KnockoutRounds.resolvedPlayerName(
+        match,
+        slot,
+        winnersByCode,
+        losersByCode,
+        fixtures
+      );
     }
     return slot === 'a' ? match['Player A'] || '' : match['Player B'] || '';
   },
 
   /** True when both players are known (not still waiting on an earlier round). */
-  fixtureResultReady: function (match, isKnockout, winnersByCode) {
+  fixtureResultReady: function (match, isKnockout, winnersByCode, losersByCode) {
+    if (
+      typeof KnockoutRounds !== 'undefined' &&
+      KnockoutRounds.isByeFixture &&
+      KnockoutRounds.isByeFixture(match)
+    ) {
+      return false;
+    }
     if (!isKnockout) return true;
     if (typeof KnockoutRounds === 'undefined') return true;
     winnersByCode = winnersByCode || {};
+    losersByCode = losersByCode || {};
 
     function slotReady(slot) {
       var id = slot === 'a' ? match.playerAId : match.playerBId;
+      if (KnockoutRounds.isLoserOfPlayerId && KnockoutRounds.isLoserOfPlayerId(id)) {
+        var lCode = KnockoutRounds.roundCodeFromLoserOfId(id);
+        return !!(lCode && losersByCode[lCode]);
+      }
       if (!KnockoutRounds.isWinnerOfPlayerId(id)) return true;
       var code = KnockoutRounds.roundCodeFromWinnerOfId(id);
       return !!(code && winnersByCode[code]);
     }
 
-    var labelA = String(this.knockoutPlayerLabel(match, 'a', winnersByCode)).trim();
-    var labelB = String(this.knockoutPlayerLabel(match, 'b', winnersByCode)).trim();
+    var labelA = String(
+      this.knockoutPlayerLabel(match, 'a', winnersByCode, losersByCode)
+    ).trim();
+    var labelB = String(
+      this.knockoutPlayerLabel(match, 'b', winnersByCode, losersByCode)
+    ).trim();
     return slotReady('a') && slotReady('b') && !!labelA && !!labelB;
   },
 
@@ -1050,6 +1079,7 @@ var FixturesPage = {
     options = options || {};
     var isKnockout = !!options.isKnockout;
     var winnersByCode = options.winnersByCode || {};
+    var losersByCode = options.losersByCode || {};
     container.innerHTML = '';
 
     orderedWeeks.forEach(function (week) {
@@ -1097,8 +1127,20 @@ var FixturesPage = {
         div.setAttribute('data-fixture-id', fid);
         div.setAttribute('data-player-a-id', pidA);
         div.setAttribute('data-player-b-id', pidB);
-        var nameA = self.knockoutPlayerLabel(match, 'a', winnersByCode);
-        var nameB = self.knockoutPlayerLabel(match, 'b', winnersByCode);
+        var nameA = self.knockoutPlayerLabel(
+          match,
+          'a',
+          winnersByCode,
+          losersByCode,
+          options.fixtures
+        );
+        var nameB = self.knockoutPlayerLabel(
+          match,
+          'b',
+          winnersByCode,
+          losersByCode,
+          options.fixtures
+        );
         if (!isKnockout) {
           nameA = match['Player A'] || '';
           nameB = match['Player B'] || '';
@@ -1122,7 +1164,12 @@ var FixturesPage = {
           div.setAttribute('data-prefill-score-b', String(match.scoreB));
           div.setAttribute('data-had-result', '1');
         }
-        var resultReady = self.fixtureResultReady(match, isKnockout, winnersByCode);
+        var resultReady = self.fixtureResultReady(
+          match,
+          isKnockout,
+          winnersByCode,
+          losersByCode
+        );
         div.setAttribute('data-result-ready', resultReady ? 'true' : 'false');
 
         var matchDate = match['Match Date'] || '';

@@ -39,7 +39,10 @@ var AdminPlayerPage = (function () {
   }
 
   function compTypeLabel(t) {
-    return String(t || '').toLowerCase() === 'knockout' ? 'Knockout' : 'League';
+    var n = String(t || '').trim().toLowerCase();
+    if (n === 'knockout') return 'Knockout';
+    if (n === 'double-eliminator' || n === 'double_eliminator') return 'Double-Eliminator';
+    return 'League';
   }
 
   var self = {

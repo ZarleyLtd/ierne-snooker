@@ -305,27 +305,158 @@ var KnockoutBracket = (function () {
     return 'M0,' + yL + ' H12 V' + yR + ' H32';
   }
 
-  function renderMatchCard(match, winnersByCode) {
+  function loserStubLabelForMatch(match, stubByCode) {
+    if (!stubByCode) return '';
+    var code = String(match['Game Week'] || '').trim();
+    return stubByCode[code] || '';
+  }
+
+  function appendExitStub(host, className, ariaPrefix, label) {
+    var stubEl = document.createElement('div');
+    stubEl.className = className;
+    stubEl.setAttribute('aria-label', ariaPrefix + ' ' + label);
+    stubEl.innerHTML =
+      '<span class="' +
+      className +
+      '-line"></span>' +
+      '<span class="' +
+      className +
+      '-label">' +
+      label +
+      '</span>';
+    host.appendChild(stubEl);
+  }
+
+  function renderGfStubCard() {
+    var card = document.createElement('article');
+    card.className = 'ko-bracket-match ko-bracket-match--gf-stub';
+    card.setAttribute('data-round-code', 'GF-STUB');
+    card.setAttribute('aria-label', 'Grand Final');
+
+    var line = document.createElement('div');
+    line.className = 'ko-bracket-match__row';
+    var nameEl = document.createElement('span');
+    nameEl.className = 'ko-bracket-match__name';
+    nameEl.textContent = 'Grand Final';
+    line.appendChild(nameEl);
+    card.appendChild(line);
+    return card;
+  }
+
+  function appendBridgeLine(bridge) {
+    var line = document.createElement('span');
+    line.className = 'ko-bracket-final-exit__bridge-line';
+    bridge.appendChild(line);
+  }
+
+  /**
+   * WF/LF match + bridge + Grand Final stub in the same stage column.
+   * With a loser code:  --- L7 ---  [Grand Final]
+   * Without (LF):       --------    [Grand Final]
+   */
+  function wrapWithGfStub(matchCard) {
+    var wrap = document.createElement('div');
+    wrap.className = 'ko-bracket-final-exit';
+
+    var labelText = '';
+    var exits = matchCard.querySelector('.ko-bracket-match__exits');
+    if (exits) {
+      var lab = exits.querySelector('.ko-bracket-match__loser-stub-label');
+      labelText = lab ? String(lab.textContent || '').trim() : '';
+      exits.parentNode.removeChild(exits);
+    }
+
+    wrap.appendChild(matchCard);
+
+    var bridge = document.createElement('div');
+    bridge.className = 'ko-bracket-final-exit__bridge';
+    if (labelText) {
+      bridge.setAttribute('aria-label', 'Loser ' + labelText);
+    } else {
+      bridge.setAttribute('aria-hidden', 'true');
+    }
+
+    appendBridgeLine(bridge);
+    if (labelText) {
+      var label = document.createElement('span');
+      label.className = 'ko-bracket-final-exit__bridge-label';
+      label.textContent = labelText;
+      bridge.appendChild(label);
+      appendBridgeLine(bridge);
+    }
+
+    wrap.appendChild(bridge);
+    wrap.appendChild(renderGfStubCard());
+    return wrap;
+  }
+
+  function rowIsWinner(match, slot, sc) {
+    if (
+      typeof KnockoutRounds !== 'undefined' &&
+      KnockoutRounds.decidedWinSlot
+    ) {
+      return KnockoutRounds.decidedWinSlot(match) === slot;
+    }
+    if (sc.hasResult && slot === 'a') return sc.scoreA > sc.scoreB;
+    if (sc.hasResult && slot === 'b') return sc.scoreB > sc.scoreA;
+    return false;
+  }
+
+  function displayNameForSlot(match, slot, winnersByCode, losersByCode, entryStubByCode, fixtures) {
+    var displayName =
+      typeof KnockoutRounds !== 'undefined' && KnockoutRounds.resolvedPlayerName
+        ? KnockoutRounds.resolvedPlayerName(
+            match,
+            slot,
+            winnersByCode,
+            losersByCode,
+            fixtures
+          )
+        : slot === 'a'
+          ? match['Player A'] || 'TBD'
+          : match['Player B'] || 'TBD';
+    if (!entryStubByCode || typeof KnockoutRounds === 'undefined') return displayName;
+    var id = slot === 'a' ? match.playerAId : match.playerBId;
+    if (!KnockoutRounds.isLoserOfPlayerId || !KnockoutRounds.isLoserOfPlayerId(id)) {
+      return displayName;
+    }
+    var feederCode = KnockoutRounds.roundCodeFromLoserOfId(id);
+    var stub = entryStubByCode[feederCode];
+    if (!stub) return displayName;
+    return '(' + stub + ') ' + displayName;
+  }
+
+  function renderMatchCard(match, winnersByCode, opts) {
+    opts = opts || {};
     var card = document.createElement('article');
     card.className = 'ko-bracket-match';
     var code = String(match['Game Week'] || '').trim();
     if (code) card.setAttribute('data-round-code', code);
     card.setAttribute('data-help', 'bracket.match');
+    var isBye =
+      typeof KnockoutRounds !== 'undefined' &&
+      KnockoutRounds.isByeFixture &&
+      KnockoutRounds.isByeFixture(match);
+    if (isBye) card.classList.add('ko-bracket-match--bye');
 
     var sc = parseScores(match);
     [
-      { slot: 'a', score: sc.scoreA, win: sc.hasResult && sc.scoreA > sc.scoreB },
-      { slot: 'b', score: sc.scoreB, win: sc.hasResult && sc.scoreB > sc.scoreA },
+      { slot: 'a', score: sc.scoreA },
+      { slot: 'b', score: sc.scoreB },
     ].forEach(function (row) {
-      var displayName =
-        typeof KnockoutRounds !== 'undefined' && KnockoutRounds.resolvedPlayerName
-          ? KnockoutRounds.resolvedPlayerName(match, row.slot, winnersByCode)
-          : row.slot === 'a'
-            ? match['Player A'] || 'TBD'
-            : match['Player B'] || 'TBD';
+      var displayName = displayNameForSlot(
+        match,
+        row.slot,
+        winnersByCode,
+        opts.losersByCode,
+        opts.entryStubByCode,
+        opts.fixtures
+      );
       var line = document.createElement('div');
       line.className = 'ko-bracket-match__row';
-      if (row.win) line.classList.add('ko-bracket-match__row--winner');
+      if (rowIsWinner(match, row.slot, sc)) {
+        line.classList.add('ko-bracket-match__row--winner');
+      }
 
       var nameEl = document.createElement('span');
       nameEl.className = 'ko-bracket-match__name';
@@ -342,10 +473,28 @@ var KnockoutBracket = (function () {
       card.appendChild(line);
     });
 
+    var matchCode = String(match['Game Week'] || '').trim();
+    var loserStub = loserStubLabelForMatch(match, opts.stubByCode);
+    if (loserStub) {
+      var exits = document.createElement('div');
+      exits.className = 'ko-bracket-match__exits';
+      appendExitStub(
+        exits,
+        'ko-bracket-match__loser-stub',
+        'Loser',
+        loserStub
+      );
+      card.appendChild(exits);
+    }
+
+    if (opts.inlineGfStub && (matchCode === 'WF' || matchCode === 'LF')) {
+      return wrapWithGfStub(card);
+    }
     return card;
   }
 
-  function renderStageColumn(stage, layoutSlots, winnersByCode) {
+  function renderStageColumn(stage, layoutSlots, winnersByCode, opts) {
+    opts = opts || {};
     var col = document.createElement('div');
     col.className = 'ko-bracket-stage';
     col.setAttribute('data-stage', stage.stageKey);
@@ -358,17 +507,230 @@ var KnockoutBracket = (function () {
     list.className = 'ko-bracket-stage__list';
 
     stage.matches.forEach(function (match) {
-      list.appendChild(renderMatchCard(match, winnersByCode));
+      list.appendChild(renderMatchCard(match, winnersByCode, opts));
     });
 
     var arena = document.createElement('div');
     arena.className = 'ko-bracket-stage__arena';
-    arena.style.setProperty('--ko-layout-slots', String(layoutSlots));
+    arena.style.setProperty('--ko-layout-slots', String(Math.max(1, layoutSlots || 1)));
     arena.appendChild(list);
 
     col.appendChild(head);
     col.appendChild(arena);
     return col;
+  }
+
+  function listMatchUnits(col) {
+    var list = col.querySelector('.ko-bracket-stage__list');
+    if (!list) return [];
+    return Array.prototype.slice.call(list.children);
+  }
+
+  function stageMatchCards(col) {
+    return Array.prototype.slice.call(
+      col.querySelectorAll('.ko-bracket-match:not(.ko-bracket-match--gf-stub)')
+    );
+  }
+
+  function findFeederLeftIdx(links, rightIdx, slot) {
+    for (var i = 0; i < links.length; i++) {
+      if (links[i].rightIdx === rightIdx && links[i].rightSlot === slot) {
+        return links[i].leftIdx;
+      }
+    }
+    return -1;
+  }
+
+  /** Y of top-row bottom edge (arena-relative) — centre of a normal 2-row match. */
+  function feederTopRowBottomY(matchEl, arenaTop) {
+    if (!matchEl) return null;
+    var rows = matchEl.querySelectorAll('.ko-bracket-match__row');
+    var row = rows.length ? rows[0] : matchEl;
+    var r = row.getBoundingClientRect();
+    return r.bottom - arenaTop;
+  }
+
+  /** Y of bottom-row top edge (arena-relative) — centre of a normal 2-row match. */
+  function feederBottomRowTopY(matchEl, arenaTop) {
+    if (!matchEl) return null;
+    var rows = matchEl.querySelectorAll('.ko-bracket-match__row');
+    var row = rows.length ? rows[rows.length - 1] : matchEl;
+    var r = row.getBoundingClientRect();
+    return r.top - arenaTop;
+  }
+
+  function clearFeederLayout(scrollTrack) {
+    scrollTrack.querySelectorAll('.ko-bracket-stage').forEach(function (col) {
+      var list = col.querySelector('.ko-bracket-stage__list');
+      var arena = col.querySelector('.ko-bracket-stage__arena');
+      if (arena) {
+        arena.style.minHeight = '';
+        arena.style.justifyContent = '';
+      }
+      if (!list) return;
+      list.classList.remove('ko-bracket-stage__list--feeder');
+      list.style.position = '';
+      list.style.height = '';
+      list.style.minHeight = '';
+      list.style.gap = '';
+      Array.prototype.forEach.call(list.children, function (el) {
+        el.style.position = '';
+        el.style.top = '';
+        el.style.left = '';
+        el.style.right = '';
+        el.style.width = '';
+        el.style.margin = '';
+      });
+    });
+    scrollTrack.querySelectorAll('.ko-bracket-connector__arena').forEach(function (arena) {
+      arena.style.minHeight = '';
+    });
+  }
+
+  function matchCardFromUnit(unit) {
+    if (!unit) return null;
+    if (unit.matches && unit.matches('.ko-bracket-match')) return unit;
+    return (
+      unit.querySelector('.ko-bracket-match:not(.ko-bracket-match--gf-stub)') || unit
+    );
+  }
+
+  function computeCentrePairTops(units, leftCards, links, arenaTop) {
+    var n = units.length;
+    if (n < 2 || !leftCards.length) return null;
+
+    var midA = Math.floor((n - 1) / 2);
+    var midB = midA + 1;
+    var leftIdxB = findFeederLeftIdx(links, midA, 'b');
+    var leftIdxA = findFeederLeftIdx(links, midB, 'a');
+    if (leftIdxB < 0) leftIdxB = Math.floor((leftCards.length - 1) / 2);
+    if (leftIdxA < 0) leftIdxA = Math.min(leftCards.length - 1, leftIdxB + 1);
+
+    var feederB = leftCards[leftIdxB];
+    var feederA = leftCards[leftIdxA];
+    var ySlotB = feederTopRowBottomY(feederB, arenaTop);
+    var ySlotA = feederBottomRowTopY(feederA, arenaTop);
+    if (ySlotB == null || ySlotA == null || !(ySlotA > ySlotB)) {
+      var prevMidA = Math.floor((leftCards.length - 1) / 2);
+      var prevMidB = Math.min(leftCards.length - 1, prevMidA + 1);
+      var pb = leftCards[prevMidA].getBoundingClientRect();
+      var pa = leftCards[prevMidB].getBoundingClientRect();
+      ySlotB = pb.top + pb.height / 2 - arenaTop;
+      ySlotA = pa.top + pa.height / 2 - arenaTop;
+    }
+    if (!(ySlotA > ySlotB)) return null;
+
+    var unitA = units[midA];
+    var unitB = units[midB];
+    var cardA = matchCardFromUnit(unitA);
+    var cardB = matchCardFromUnit(unitB);
+    var rowB = matchRowForSlot(cardA, 'b');
+    var rowA = matchRowForSlot(cardB, 'a');
+    var unitARect = unitA.getBoundingClientRect();
+    var unitBRect = unitB.getBoundingClientRect();
+    var rowBRect = (rowB || cardA).getBoundingClientRect();
+    var rowARect = (rowA || cardB).getBoundingClientRect();
+    var offsetB = rowBRect.top + rowBRect.height / 2 - unitARect.top;
+    var offsetA = rowARect.top + rowARect.height / 2 - unitBRect.top;
+
+    var tops = [];
+    tops[midA] = ySlotB - offsetB;
+    tops[midB] = ySlotA - offsetA;
+    var pitch = tops[midB] - tops[midA];
+    if (!(pitch > 0)) return null;
+    for (var i = 0; i < n; i++) {
+      tops[i] = tops[midA] + (i - midA) * pitch;
+    }
+    return tops;
+  }
+
+  function topsFitArena(tops, units, arenaHeight) {
+    if (!tops || !tops.length) return false;
+    for (var i = 0; i < tops.length; i++) {
+      var h = (units[i] && units[i].offsetHeight) || 0;
+      if (tops[i] < -0.5 || tops[i] + h > arenaHeight + 0.5) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Centre-pair driver for shrinking rounds (winners-style): slot-b / slot-a
+   * centres line up with the previous round's feeder row edges.
+   * Expanding / irregular losers rounds stay packed and centred so matches
+   * are not clipped above the arena.
+   */
+  function layoutFeederDrivenGaps(scrollTrack, stagesData) {
+    var stageCols = Array.prototype.slice.call(
+      scrollTrack.querySelectorAll('.ko-bracket-stage')
+    );
+    if (!stageCols.length || !stagesData || !stagesData.length) return;
+
+    clearFeederLayout(scrollTrack);
+
+    var naturalHeights = stageCols.map(function (col) {
+      var list = col.querySelector('.ko-bracket-stage__list');
+      return list ? list.offsetHeight : 0;
+    });
+    var arenaHeight = Math.max.apply(null, naturalHeights.concat([1]));
+
+    stageCols.forEach(function (col) {
+      var arena = col.querySelector('.ko-bracket-stage__arena');
+      if (arena) {
+        arena.style.minHeight = arenaHeight + 'px';
+        arena.style.justifyContent = 'center';
+      }
+    });
+    scrollTrack.querySelectorAll('.ko-bracket-connector__arena').forEach(function (arena) {
+      arena.style.minHeight = arenaHeight + 'px';
+    });
+
+    var firstArena = stageCols[0].querySelector('.ko-bracket-stage__arena');
+    if (!firstArena) return;
+    var arenaTop = firstArena.getBoundingClientRect().top;
+
+    for (var s = 1; s < stageCols.length; s++) {
+      var leftCol = stageCols[s - 1];
+      var rightCol = stageCols[s];
+      var rightArena = rightCol.querySelector('.ko-bracket-stage__arena');
+      var rightList = rightCol.querySelector('.ko-bracket-stage__list');
+      var units = listMatchUnits(rightCol);
+      var leftCards = stageMatchCards(leftCol);
+      var n = units.length;
+      if (!rightList || !rightArena || n < 1) continue;
+
+      var links = buildLinks(stagesData[s - 1], stagesData[s]);
+      var tops = null;
+
+      if (n === 1) {
+        var onlyH = units[0].offsetHeight || 0;
+        tops = [Math.round((arenaHeight - onlyH) / 2)];
+      } else if (n < leftCards.length) {
+        // Classic shrink (e.g. W16→W8). Skip when the round grows (common in LB).
+        tops = computeCentrePairTops(units, leftCards, links, arenaTop);
+        if (!topsFitArena(tops, units, arenaHeight)) tops = null;
+      }
+
+      if (!tops) {
+        // Packed + vertically centred (readable for losers absorb rounds).
+        rightArena.style.justifyContent = 'center';
+        continue;
+      }
+
+      rightArena.style.justifyContent = 'flex-start';
+      rightList.classList.add('ko-bracket-stage__list--feeder');
+      rightList.style.position = 'relative';
+      rightList.style.height = arenaHeight + 'px';
+      rightList.style.gap = '0';
+
+      for (var j = 0; j < n; j++) {
+        var el = units[j];
+        el.style.position = 'absolute';
+        el.style.left = '0';
+        el.style.right = '0';
+        el.style.width = '100%';
+        el.style.top = Math.round(tops[j]) + 'px';
+      }
+    }
   }
 
   function renderConnector(leftStage, rightStage, layoutSlots) {
@@ -428,6 +790,23 @@ var KnockoutBracket = (function () {
     return Math.max(3, Math.min(97, y));
   }
 
+  /** Left-side Y for a connector: top-row bottom (→ slot b) or bottom-row top (→ slot a). */
+  function leftAnchorYPercent(matchEl, slot, refTop, refHeight) {
+    if (!matchEl || refHeight < 1) return 50;
+    var rows = matchEl.querySelectorAll('.ko-bracket-match__row');
+    var y;
+    if (slot === 'b') {
+      var topRow = rows.length ? rows[0] : matchEl;
+      var tb = topRow.getBoundingClientRect();
+      y = (tb.bottom - refTop) / refHeight * 100;
+    } else {
+      var botRow = rows.length ? rows[rows.length - 1] : matchEl;
+      var bb = botRow.getBoundingClientRect();
+      y = (bb.top - refTop) / refHeight * 100;
+    }
+    return Math.max(3, Math.min(97, y));
+  }
+
   function sharedVerticalMetrics(leftCol, rightCol, connArena) {
     var leftArena = leftCol.querySelector('.ko-bracket-stage__arena');
     var rightArena = rightCol.querySelector('.ko-bracket-stage__arena');
@@ -470,8 +849,12 @@ var KnockoutBracket = (function () {
       var metrics = sharedVerticalMetrics(leftCol, rightCol, connArena);
       if (!metrics) return;
 
-      var leftMatches = leftCol.querySelectorAll('.ko-bracket-match');
-      var rightMatches = rightCol.querySelectorAll('.ko-bracket-match');
+      var leftMatches = leftCol.querySelectorAll(
+        '.ko-bracket-match:not(.ko-bracket-match--gf-stub)'
+      );
+      var rightMatches = rightCol.querySelectorAll(
+        '.ko-bracket-match:not(.ko-bracket-match--gf-stub)'
+      );
 
       svg.querySelectorAll('path').forEach(function (path) {
         var leftIdx = parseInt(path.getAttribute('data-left-idx'), 10);
@@ -481,8 +864,9 @@ var KnockoutBracket = (function () {
         var rightCard = rightMatches[rightIdx];
         if (!leftCard || !rightCard) return;
 
-        var yL = yPercentInRect(
-          linkAnchorEl('left', leftCard, slot),
+        var yL = leftAnchorYPercent(
+          leftCard,
+          slot,
           metrics.refTop,
           metrics.refHeight
         );
@@ -631,8 +1015,8 @@ var KnockoutBracket = (function () {
     nextBtn.innerHTML =
       '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6L16 12L10 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-    var layoutSlots = maxMatchesInTrack(track.stages);
-    var stages = track.stages;
+    var stages = track.stages.slice();
+    var layoutSlots = maxMatchesInTrack(stages);
     var stageTitleEl = null;
 
     if (trackOptions.stageNav !== false && stages.length) {
@@ -658,11 +1042,15 @@ var KnockoutBracket = (function () {
     var scrollTrack = document.createElement('div');
     scrollTrack.className = 'ko-bracket-shell__track';
 
+    var cardOpts = Object.assign({}, trackOptions.cardOpts || {});
+    if (trackOptions.appendGfStub) cardOpts.inlineGfStub = true;
     stages.forEach(function (stage, idx) {
       if (idx > 0) {
         scrollTrack.appendChild(renderConnector(stages[idx - 1], stage, layoutSlots));
       }
-      scrollTrack.appendChild(renderStageColumn(stage, layoutSlots, winnersByCode));
+      scrollTrack.appendChild(
+        renderStageColumn(stage, layoutSlots, winnersByCode, cardOpts)
+      );
     });
 
     viewport.appendChild(scrollTrack);
@@ -672,7 +1060,7 @@ var KnockoutBracket = (function () {
     root.appendChild(block);
 
     function layoutConnectors() {
-      syncConnectorHeights(scrollTrack);
+      layoutFeederDrivenGaps(scrollTrack, stages);
       updateConnectorPaths(scrollTrack);
     }
 
@@ -749,13 +1137,109 @@ var KnockoutBracket = (function () {
         typeof KnockoutRounds !== 'undefined' && KnockoutRounds.buildRoundWinnersMap
           ? KnockoutRounds.buildRoundWinnersMap(fixtures)
           : {};
+      var losersByCode =
+        typeof KnockoutRounds !== 'undefined' && KnockoutRounds.buildRoundLosersMap
+          ? KnockoutRounds.buildRoundLosersMap(fixtures)
+          : {};
 
       var stageNav = options.stageNav !== false;
+      var looksLikeDe =
+        options.doubleElim === true ||
+        (typeof KnockoutRounds !== 'undefined' &&
+          typeof KnockoutRounds.fixturesLookLikeDoubleElim === 'function' &&
+          KnockoutRounds.fixturesLookLikeDoubleElim(fixtures));
+      var deOpts = looksLikeDe ? { doubleElim: true } : null;
+
+      if (looksLikeDe && typeof KnockoutRounds !== 'undefined') {
+        var wbStages = [];
+        var lbStages = [];
+        var gfStages = [];
+        stages.forEach(function (stage) {
+          var sample = (stage.codes && stage.codes[0]) || '';
+          if (KnockoutRounds.isGrandFinalCode(sample) || stage.stageKey === 'GF' || stage.stageKey === 'GF-R') {
+            gfStages.push(stage);
+          } else if (
+            KnockoutRounds.isLosersBracketCode(sample, deOpts) ||
+            stage.stageKey === 'LF'
+          ) {
+            lbStages.push(stage);
+          } else if (
+            KnockoutRounds.isWinnersBracketCode(sample) ||
+            /^W\d+$/i.test(stage.stageKey) ||
+            stage.stageKey === 'WF'
+          ) {
+            wbStages.push(stage);
+          } else {
+            wbStages.push(stage);
+          }
+        });
+
+        var stubByCode = {};
+        var stubNum = 1;
+        wbStages.forEach(function (stage) {
+          (stage.matches || []).forEach(function (m) {
+            var code = String(m['Game Week'] || '').trim();
+            if (code && stubByCode[code] == null) {
+              stubByCode[code] = 'L' + stubNum;
+              stubNum += 1;
+            }
+          });
+        });
+
+        if (wbStages.length) {
+          renderTrack(
+            { id: 'winners', label: 'Winners', stages: wbStages },
+            root,
+            winnersByCode,
+            {
+              stageNav: stageNav,
+              trackLabel: 'Winners bracket',
+              appendGfStub: true,
+              cardOpts: {
+                losersByCode: losersByCode,
+                stubByCode: stubByCode,
+                fixtures: fixtures,
+              },
+            }
+          );
+        }
+        if (lbStages.length) {
+          renderTrack(
+            { id: 'losers', label: 'Losers', stages: lbStages },
+            root,
+            winnersByCode,
+            {
+              stageNav: stageNav,
+              trackLabel: 'Losers bracket',
+              appendGfStub: true,
+              cardOpts: {
+                losersByCode: losersByCode,
+                entryStubByCode: stubByCode,
+                fixtures: fixtures,
+              },
+            }
+          );
+        }
+        if (gfStages.length) {
+          renderTrack(
+            { id: 'finals', label: 'Finals', stages: gfStages },
+            root,
+            winnersByCode,
+            {
+              stageNav: stageNav,
+              trackLabel: 'Grand Final',
+              cardOpts: { losersByCode: losersByCode, fixtures: fixtures },
+            }
+          );
+        }
+        return;
+      }
 
       buildTracks(stages).forEach(function (track) {
         renderTrack(track, root, winnersByCode, {
           stageNav: stageNav,
           trackLabel: track.label || '',
+          cardOpts: { losersByCode: losersByCode, fixtures: fixtures },
         });
       });
     },

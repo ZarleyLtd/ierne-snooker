@@ -27,7 +27,7 @@
 //   adminLogin, upsertCompetition, deleteCompetition,
 //   upsertCompetitionGroup, deleteCompetitionGroup,
 //   upsertCompetitionPlayer, upsertPlayer, upsertHandicap,
-//   upsertFixture, updateFixtureResult, upsertBreak, deleteBreak,
+//   upsertFixture, generateFixtures, updateFixtureResult, upsertBreak, deleteBreak,
 //   deleteFixture, deleteHandicap, deletePlayer,
 //   getResultSlip, uploadResultSlip, commitResultSlip,
 //   discardResultSlipSession, removeResultSlip, approveFixtureResult,
@@ -216,7 +216,7 @@ type CompetitionRow = {
   starts_on: string | null;
   ends_on: string | null;
   is_current: boolean;
-  competition_type: "league" | "knockout";
+  competition_type: "league" | "knockout" | "double-eliminator";
   parent_competition_id: string | null;
 };
 
@@ -239,6 +239,7 @@ type FixtureRow = {
   group_id: string | null;
   stage: "group" | "knockout";
   round_label: string;
+  round_name: string | null;
   player_a_id: string;
   player_b_id: string;
   match_date: string | null;
@@ -252,6 +253,8 @@ type FixtureRow = {
   result_approved_at?: string | Date | null;
   result_posted_at?: string | Date | null;
 };
+
+type CompetitionType = "league" | "knockout" | "double-eliminator";
 
 type StandingRow = {
   competition_id: string;
@@ -308,9 +311,18 @@ function buildPlayerMap(players: PlayerRow[]): Map<string, PlayerRow> {
   return map;
 }
 
-function normalizeCompetitionType(raw: string | null): "league" | "knockout" {
+function normalizeCompetitionType(raw: string | null): CompetitionType {
   const t = String(raw ?? "league").trim().toLowerCase();
-  return t === "knockout" ? "knockout" : "league";
+  if (t === "knockout") return "knockout";
+  if (t === "double-eliminator" || t === "double_eliminator" || t === "doubleelim") {
+    return "double-eliminator";
+  }
+  return "league";
+}
+
+function isBracketCompetitionType(t: CompetitionType | string | null | undefined): boolean {
+  const n = normalizeCompetitionType(t == null ? null : String(t));
+  return n === "knockout" || n === "double-eliminator";
 }
 
 async function loadAllPlayers(): Promise<PlayerRow[]> {
@@ -369,6 +381,9 @@ async function loadCompetitionGroups(compId: string): Promise<GroupRow[]> {
 
 const KNOCKOUT_GROUP_ID = "ko";
 const WINNER_OF_PREFIX = "wo:";
+const LOSER_OF_PREFIX = "lo:";
+const BYE_PLAYER_ID = "bye";
+const BYE_PLAYER_NAME = "Bye";
 
 const KNOCKOUT_ROUND_LABELS: Record<string, string> = {
   QF1: "Quarter-final 1",
@@ -380,6 +395,10 @@ const KNOCKOUT_ROUND_LABELS: Record<string, string> = {
   F: "Final",
   "F-P": "Plate Final",
   "F-C": "Championship Final",
+  WF: "Winners Final",
+  LF: "Losers Final",
+  GF: "Grand Final",
+  "GF-R": "Grand Final Reset",
 };
 
 function knockoutRoundLabel(code: string): string {
@@ -388,10 +407,19 @@ function knockoutRoundLabel(code: string): string {
   if (KNOCKOUT_ROUND_LABELS[c]) return KNOCKOUT_ROUND_LABELS[c];
 
   const l32 = c.match(/^L32-(\d+)$/i);
-  if (l32) return `Last 32 — match ${l32[1]}`;
+  if (l32) return `Round 1 — match ${l32[1]}`;
 
   const l16 = c.match(/^L16-(\d+)$/i);
-  if (l16) return `Last 16 — match ${l16[1]}`;
+  if (l16) return `Round 2 — match ${l16[1]}`;
+
+  const cp = c.match(/^CP-(\d+)$/i);
+  if (cp) return `Custom Playoff — match ${cp[1]}`;
+
+  const wr = c.match(/^W(\d+)-(\d+)$/i);
+  if (wr) return `Round ${wr[1]} — match ${wr[2]}`;
+
+  const lr = c.match(/^L(\d+)-(\d+)$/i);
+  if (lr) return `Losers Round ${lr[1]} — match ${lr[2]}`;
 
   const qf = c.match(/^QF(\d+)$/i);
   if (qf) return `Quarter-final ${qf[1]}`;
@@ -405,33 +433,62 @@ function knockoutRoundLabel(code: string): string {
     if (n === 2) return "Final";
     if (n === 4) return "Semi-finals";
     if (n === 8) return "Quarter-finals";
-    if (n === 16) return "Last 16";
-    if (n === 32) return "Last 32";
-    return `Last ${n}`;
+    if (n === 16 || n === 32) return "Round 1";
+    return `Round`;
   }
   if (/^KO Pre-/i.test(c)) return "Preliminary";
   return c;
 }
 
+/**
+ * DB display name for wo:/lo: placeholder players.
+ * Must be unique per round code — friendly labels like "Round 1 — match 1"
+ * collide across KO (L32-1) and DE (W1-1) under players_player_name_key.
+ * UI resolves wo:/lo: via KnockoutRounds; these names are fallbacks only.
+ */
 function winnerOfPlayerName(roundCode: string): string {
-  const label = knockoutRoundLabel(roundCode);
-  const base = label || roundCode.trim();
-  return base ? `${base} Winner` : "Winner";
+  const code = roundCode.trim();
+  return code ? `Winner of ${code}` : "Winner";
+}
+
+function loserOfPlayerName(roundCode: string): string {
+  const code = roundCode.trim();
+  return code ? `Loser of ${code}` : "Loser";
 }
 
 function isWinnerOfPlayerId(playerId: string): boolean {
   return playerId.startsWith(WINNER_OF_PREFIX);
 }
 
-async function ensureWinnerOfPlayers(
+function isLoserOfPlayerId(playerId: string): boolean {
+  return playerId.startsWith(LOSER_OF_PREFIX);
+}
+
+function isBracketPlaceholderPlayerId(playerId: string): boolean {
+  return isWinnerOfPlayerId(playerId) || isLoserOfPlayerId(playerId);
+}
+
+function placeholderPlayerName(playerId: string): string {
+  if (isWinnerOfPlayerId(playerId)) {
+    return winnerOfPlayerName(playerId.slice(WINNER_OF_PREFIX.length));
+  }
+  if (isLoserOfPlayerId(playerId)) {
+    return loserOfPlayerName(playerId.slice(LOSER_OF_PREFIX.length));
+  }
+  return "";
+}
+
+async function ensureBracketPlaceholderPlayers(
   sql: ReturnType<typeof postgres>,
   ...playerIds: string[]
 ): Promise<void> {
+  const seen = new Set<string>();
   for (const playerId of playerIds) {
-    if (!isWinnerOfPlayerId(playerId)) continue;
-    const roundCode = playerId.slice(WINNER_OF_PREFIX.length);
-    if (!roundCode) continue;
-    const playerName = winnerOfPlayerName(roundCode);
+    if (!isBracketPlaceholderPlayerId(playerId)) continue;
+    if (seen.has(playerId)) continue;
+    seen.add(playerId);
+    const playerName = placeholderPlayerName(playerId);
+    if (!playerName) continue;
     await sql`
       insert into ierne_snooker.players (player_id, player_name, active, updated_at)
       values (${playerId}, ${playerName}, false, now())
@@ -440,6 +497,513 @@ async function ensureWinnerOfPlayers(
         updated_at = now()
     `;
   }
+}
+
+/** @deprecated use ensureBracketPlaceholderPlayers */
+async function ensureWinnerOfPlayers(
+  sql: ReturnType<typeof postgres>,
+  ...playerIds: string[]
+): Promise<void> {
+  await ensureBracketPlaceholderPlayers(sql, ...playerIds);
+}
+
+function nextPow2(n: number): number {
+  let p = 1;
+  while (p < n) p *= 2;
+  return Math.max(2, p);
+}
+
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i]!;
+    arr[i] = arr[j]!;
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+/**
+ * Standard single-elim seed order for a power-of-2 bracket (slot → seed number).
+ * e.g. 8 → [1,8,4,5,2,7,3,6]. Byes occupy seeds N+1..n so they never cluster
+ * on one side (avoids a player receiving byes in consecutive rounds).
+ */
+function bracketSeedOrder(n: number): number[] {
+  if (n < 2 || (n & (n - 1)) !== 0) {
+    throw new Error("bracketSeedOrder requires a power of 2");
+  }
+  let seeds = [1, 2];
+  while (seeds.length < n) {
+    const sum = seeds.length * 2 + 1;
+    const next: number[] = [];
+    for (const s of seeds) {
+      next.push(s);
+      next.push(sum - s);
+    }
+    seeds = next;
+  }
+  return seeds;
+}
+
+/** Shuffle players, pad to next power of 2, place byes on high seed slots. */
+function placePlayersWithBalancedByes(playerIds: string[]): (string | null)[] {
+  const real = playerIds.filter(Boolean);
+  const n = nextPow2(Math.max(2, real.length));
+  const shuffled = shuffleInPlace(real.slice());
+  const order = bracketSeedOrder(n);
+  return order.map((seed) => (seed <= shuffled.length ? shuffled[seed - 1]! : null));
+}
+
+function winnerOfId(roundCode: string): string {
+  return WINNER_OF_PREFIX + roundCode;
+}
+
+function loserOfId(roundCode: string): string {
+  return LOSER_OF_PREFIX + roundCode;
+}
+
+type GeneratedFixture = {
+  groupId: string | null;
+  stage: "group" | "knockout";
+  roundLabel: string;
+  roundName: string | null;
+  playerAId: string;
+  playerBId: string;
+  sortOrder: number;
+  scoreA?: number | null;
+  scoreB?: number | null;
+};
+
+function isByePlayerId(playerId: string | null | undefined): boolean {
+  return String(playerId || "").trim().toLowerCase() === BYE_PLAYER_ID;
+}
+
+async function ensureByePlayer(sql: ReturnType<typeof postgres>): Promise<void> {
+  await sql`
+    insert into ierne_snooker.players (player_id, player_name, active, updated_at)
+    values (${BYE_PLAYER_ID}, ${BYE_PLAYER_NAME}, false, now())
+    on conflict (player_id) do update set
+      player_name = excluded.player_name,
+      updated_at = now()
+  `;
+}
+
+/**
+ * Real player vs Bye indicator fixture (bracket padding).
+ * Left unscored so it does not appear in Results or contribute to frame/W–L stats;
+ * generate already advances the real player into the next round.
+ */
+function byeFixture(
+  base: Omit<GeneratedFixture, "playerAId" | "playerBId" | "scoreA" | "scoreB">,
+  realPlayerId: string,
+): GeneratedFixture {
+  return {
+    ...base,
+    playerAId: realPlayerId,
+    playerBId: BYE_PLAYER_ID,
+    scoreA: null,
+    scoreB: null,
+  };
+}
+
+function koStagePlanForSize(n: number): { id: string; matchCount: number; codes: (m: number) => string }[] {
+  // n is power of 2 >= 2
+  const plan: { id: string; matchCount: number; codes: (m: number) => string }[] = [];
+  if (n >= 32) {
+    plan.push({ id: "L32", matchCount: 16, codes: (m) => `L32-${m}` });
+  }
+  if (n >= 16) {
+    plan.push({ id: "L16", matchCount: 8, codes: (m) => `L16-${m}` });
+  }
+  if (n >= 8) {
+    plan.push({ id: "QF", matchCount: 4, codes: (m) => `QF${m}` });
+  }
+  if (n >= 4) {
+    plan.push({ id: "SF", matchCount: 2, codes: (m) => `SF${m}` });
+  }
+  plan.push({ id: "F", matchCount: 1, codes: () => "F" });
+  // Trim leading rounds until first round matchCount == n/2
+  const firstMatches = n / 2;
+  while (plan.length > 1 && plan[0]!.matchCount > firstMatches) {
+    plan.shift();
+  }
+  return plan;
+}
+
+function generateKnockoutFixtures(playerIds: string[]): GeneratedFixture[] {
+  const real = playerIds.filter(Boolean);
+  if (real.length < 2) throw new Error("Need at least 2 players to generate knockout fixtures");
+  const slots = placePlayersWithBalancedByes(real);
+  const n = slots.length;
+  const plan = koStagePlanForSize(n);
+  const out: GeneratedFixture[] = [];
+  let sortOrder = 1;
+  let current: (string | null)[] = slots;
+
+  for (let r = 0; r < plan.length; r++) {
+    const stage = plan[r]!;
+    const next: (string | null)[] = [];
+    for (let m = 0; m < stage.matchCount; m++) {
+      const a = current[m * 2] ?? null;
+      const b = current[m * 2 + 1] ?? null;
+      const code = stage.codes(m + 1);
+      if (a && b) {
+        out.push({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: code,
+          roundName: null,
+          playerAId: a,
+          playerBId: b,
+          sortOrder: sortOrder++,
+        });
+        next.push(winnerOfId(code));
+      } else if (a || b) {
+        const real = (a || b)!;
+        out.push(byeFixture({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: code,
+          roundName: null,
+          sortOrder: sortOrder++,
+        }, real));
+        next.push(real);
+      } else {
+        next.push(null);
+      }
+    }
+    current = next;
+  }
+  return out;
+}
+
+function generateDoubleElimFixtures(playerIds: string[]): GeneratedFixture[] {
+  const real = playerIds.filter(Boolean);
+  if (real.length < 2) {
+    throw new Error("Need at least 2 players to generate double-eliminator fixtures");
+  }
+  const slots = placePlayersWithBalancedByes(real);
+  const n = slots.length;
+  const roundsWb = Math.log2(n); // e.g. 8 → 3
+  const out: GeneratedFixture[] = [];
+  let sortOrder = 1;
+
+  // Winners bracket: W1-*, W2-*, ... WF
+  type WbMatch = { code: string; played: boolean };
+  const wbByRound: WbMatch[][] = [];
+  let current: (string | null)[] = slots;
+
+  for (let r = 1; r <= roundsWb; r++) {
+    const matchCount = current.length / 2;
+    const isFinal = r === roundsWb;
+    const roundMatches: WbMatch[] = [];
+    const next: (string | null)[] = [];
+    for (let m = 0; m < matchCount; m++) {
+      const a = current[m * 2] ?? null;
+      const b = current[m * 2 + 1] ?? null;
+      const code = isFinal ? "WF" : `W${r}-${m + 1}`;
+      if (a && b) {
+        out.push({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: code,
+          roundName: null,
+          playerAId: a,
+          playerBId: b,
+          sortOrder: sortOrder++,
+        });
+        roundMatches.push({ code, played: true });
+        next.push(winnerOfId(code));
+      } else if (a || b) {
+        const real = (a || b)!;
+        out.push(byeFixture({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: code,
+          roundName: null,
+          sortOrder: sortOrder++,
+        }, real));
+        // Bye match is an indicator only; no loser drops to the losers bracket.
+        roundMatches.push({ code, played: false });
+        next.push(real);
+      } else {
+        roundMatches.push({ code, played: false });
+        next.push(null);
+      }
+    }
+    wbByRound.push(roundMatches);
+    current = next;
+  }
+
+  // Losers bracket. For 2 players there is only WF — grand final is winner vs loser of WF.
+  if (roundsWb === 1) {
+    out.push({
+      groupId: KNOCKOUT_GROUP_ID,
+      stage: "knockout",
+      roundLabel: "GF",
+      roundName: null,
+      playerAId: winnerOfId("WF"),
+      playerBId: loserOfId("WF"),
+      sortOrder: sortOrder++,
+    });
+    out.push({
+      groupId: KNOCKOUT_GROUP_ID,
+      stage: "knockout",
+      roundLabel: "GF-R",
+      roundName: null,
+      playerAId: winnerOfId("GF"),
+      playerBId: loserOfId("GF"),
+      sortOrder: sortOrder++,
+    });
+    return out;
+  }
+
+  // L1: pair actual WB round-1 losers only (W1 byes do not drop anyone).
+  // Later absorb rounds use full-slot DE shape: one LB match per WB dropper,
+  // with LB survivors filling early slots and remaining droppers getting byes
+  // (e.g. 18 players → L1×1, then L2×8 with 7 byes, then L3×4, …).
+  let lbEntrants: (string | null)[] = [];
+  const wbR1 = wbByRound[0] || [];
+  for (const m of wbR1) {
+    if (m.played) lbEntrants.push(loserOfId(m.code));
+  }
+  let lbRoundNum = 1;
+  let lbCurrent: (string | null)[] = lbEntrants;
+
+  function pairRound(
+    entrants: (string | null)[],
+    codeFor: (m: number) => string,
+  ): { fixtures: GeneratedFixture[]; winners: (string | null)[] } {
+    const fixtures: GeneratedFixture[] = [];
+    const winners: (string | null)[] = [];
+    // Ensure even length
+    const list = entrants.slice();
+    if (list.length % 2 === 1) list.push(null);
+    for (let m = 0; m < list.length / 2; m++) {
+      const a = list[m * 2] ?? null;
+      const b = list[m * 2 + 1] ?? null;
+      const code = codeFor(m + 1);
+      if (a && b) {
+        fixtures.push({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: code,
+          roundName: null,
+          playerAId: a,
+          playerBId: b,
+          sortOrder: 0, // filled below
+        });
+        winners.push(winnerOfId(code));
+      } else if (a || b) {
+        const real = (a || b)!;
+        fixtures.push(byeFixture({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: code,
+          roundName: null,
+          sortOrder: 0,
+        }, real));
+        winners.push(real);
+      } else {
+        winners.push(null);
+      }
+    }
+    return { fixtures, winners };
+  }
+
+  /** Full-slot absorb: one match per WB dropper; spare droppers get byes. */
+  function absorbRound(
+    lbWinners: (string | null)[],
+    droppers: (string | null)[],
+    codeFor: (m: number) => string,
+  ): { fixtures: GeneratedFixture[]; winners: (string | null)[] } {
+    const lbs = lbWinners.filter(Boolean) as string[];
+    const drops = droppers.filter(Boolean) as string[];
+    if (drops.length === 0) {
+      return { fixtures: [], winners: lbs.slice() };
+    }
+    // Nobody waiting in LB yet — pair the droppers among themselves.
+    if (lbs.length === 0) {
+      return pairRound(drops, codeFor);
+    }
+
+    const fixtures: GeneratedFixture[] = [];
+    const winners: (string | null)[] = [];
+    for (let i = 0; i < drops.length; i++) {
+      const dropper = drops[i]!;
+      const lb = i < lbs.length ? lbs[i]! : null;
+      const code = codeFor(i + 1);
+      if (lb) {
+        fixtures.push({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: code,
+          roundName: null,
+          playerAId: lb,
+          playerBId: dropper,
+          sortOrder: 0,
+        });
+        winners.push(winnerOfId(code));
+      } else {
+        fixtures.push(byeFixture({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: code,
+          roundName: null,
+          sortOrder: 0,
+        }, dropper));
+        winners.push(dropper);
+      }
+    }
+
+    // Excess LB survivors (should be rare after consolidation) keep playing.
+    if (lbs.length > drops.length) {
+      const excess = lbs.slice(drops.length);
+      if (excess.length === 1) {
+        winners.push(excess[0]!);
+      } else if (excess.length > 1) {
+        const extra = pairRound(excess, (m) => codeFor(drops.length + m));
+        for (const f of extra.fixtures) fixtures.push(f);
+        for (const w of extra.winners) winners.push(w);
+      }
+    }
+    return { fixtures, winners };
+  }
+
+  if (lbCurrent.length >= 2) {
+    const { fixtures, winners } = pairRound(lbCurrent, (m) => `L${lbRoundNum}-${m}`);
+    for (const f of fixtures) {
+      f.sortOrder = sortOrder++;
+      out.push(f);
+    }
+    lbCurrent = winners;
+    lbRoundNum++;
+  }
+
+  for (let wr = 1; wr < roundsWb; wr++) {
+    const droppers: (string | null)[] = [];
+    for (const m of wbByRound[wr] || []) {
+      if (m.played) droppers.push(loserOfId(m.code));
+    }
+    const isLastWb = wr === roundsWb - 1;
+
+    // Special-case losers final: when absorbing WF loser into last LB winner
+    if (isLastWb) {
+      const lbWinner = lbCurrent.find(Boolean) || null;
+      const wfLoser = droppers.find(Boolean) || null;
+      if (lbWinner && wfLoser) {
+        out.push({
+          groupId: KNOCKOUT_GROUP_ID,
+          stage: "knockout",
+          roundLabel: "LF",
+          roundName: null,
+          playerAId: lbWinner,
+          playerBId: wfLoser,
+          sortOrder: sortOrder++,
+        });
+        lbCurrent = [winnerOfId("LF")];
+      } else if (lbWinner || wfLoser) {
+        lbCurrent = [lbWinner || wfLoser];
+      }
+      break;
+    }
+
+    const { fixtures, winners } = absorbRound(lbCurrent, droppers, (m) => `L${lbRoundNum}-${m}`);
+    for (const f of fixtures) {
+      f.sortOrder = sortOrder++;
+      out.push(f);
+    }
+    lbCurrent = winners;
+    lbRoundNum++;
+
+    // Consolidation when LB still has more survivors than the next WB drop.
+    if (lbCurrent.filter(Boolean).length > 1 && wr < roundsWb - 1) {
+      const nextDropCount = (wbByRound[wr + 1] || []).filter((m) => m.played).length;
+      if (lbCurrent.filter(Boolean).length > nextDropCount) {
+        const cons = pairRound(lbCurrent, (m) => `L${lbRoundNum}-${m}`);
+        for (const f of cons.fixtures) {
+          f.sortOrder = sortOrder++;
+          out.push(f);
+        }
+        lbCurrent = cons.winners;
+        lbRoundNum++;
+      }
+    }
+  }
+
+  // Grand final + reset
+  out.push({
+    groupId: KNOCKOUT_GROUP_ID,
+    stage: "knockout",
+    roundLabel: "GF",
+    roundName: null,
+    playerAId: winnerOfId("WF"),
+    playerBId: winnerOfId("LF"),
+    sortOrder: sortOrder++,
+  });
+  out.push({
+    groupId: KNOCKOUT_GROUP_ID,
+    stage: "knockout",
+    roundLabel: "GF-R",
+    roundName: null,
+    playerAId: winnerOfId("GF"),
+    playerBId: loserOfId("GF"),
+    sortOrder: sortOrder++,
+  });
+
+  return out;
+}
+
+/** Circle method single round-robin. Returns fixtures with week numbers as roundLabel. */
+function generateLeagueRoundRobin(
+  groupId: string,
+  playerIds: string[],
+  sortOrderStart: number,
+): GeneratedFixture[] {
+  const players = playerIds.filter(Boolean).slice();
+  if (players.length < 2) return [];
+  const bye = "__BYE__";
+  if (players.length % 2 === 1) players.push(bye);
+  const n = players.length;
+  const rounds = n - 1;
+  const half = n / 2;
+  const out: GeneratedFixture[] = [];
+  let sortOrder = sortOrderStart;
+  // Copy rotating list (fix player 0)
+  const arr = players.slice();
+  for (let round = 0; round < rounds; round++) {
+    for (let i = 0; i < half; i++) {
+      const a = arr[i]!;
+      const b = arr[n - 1 - i]!;
+      if (a === bye || b === bye) {
+        const real = a === bye ? b : a;
+        if (real === bye) continue;
+        out.push(byeFixture({
+          groupId,
+          stage: "group",
+          roundLabel: String(round + 1),
+          roundName: null,
+          sortOrder: sortOrder++,
+        }, real));
+        continue;
+      }
+      out.push({
+        groupId,
+        stage: "group",
+        roundLabel: String(round + 1),
+        roundName: null,
+        playerAId: a,
+        playerBId: b,
+        sortOrder: sortOrder++,
+      });
+    }
+    // Rotate all but first
+    const fixed = arr[0]!;
+    const rest = arr.slice(1);
+    rest.unshift(rest.pop()!);
+    arr.splice(0, arr.length, fixed, ...rest);
+  }
+  return out;
 }
 
 async function ensureKnockoutCompGroup(compId: string): Promise<void> {
@@ -593,7 +1157,7 @@ async function handleGetCompetitionGroups(req: Request): Promise<Response> {
   if (!compRows.length) return errorResponse("Competition not found", 404);
   const comp = compRows[0] as unknown as CompetitionRow;
 
-  if (comp.competition_type === "knockout") {
+  if (isBracketCompetitionType(comp.competition_type)) {
     await ensureKnockoutCompGroup(compId);
   }
 
@@ -616,7 +1180,7 @@ async function handleGetCompetitionGroups(req: Request): Promise<Response> {
       ) pc on true
      where cg.competition_id = ${compId}
        and (
-         ${comp.competition_type} = 'knockout'
+         ${comp.competition_type} in ('knockout', 'double-eliminator')
          or cg.group_id <> ${KNOCKOUT_GROUP_ID}
        )
      order by cg.display_order asc, cg.group_id asc
@@ -778,7 +1342,7 @@ async function handleGetFixtures(req: Request): Promise<Response> {
   const [players, fixtureRows] = await Promise.all([
     loadAllPlayers(),
     sql<FixtureRow[]>`
-      select fixture_id, competition_id, group_id, stage, round_label,
+      select fixture_id, competition_id, group_id, stage, round_label, round_name,
              player_a_id, player_b_id,
              to_char(match_date, 'YYYY-MM-DD') as match_date,
              score_a, score_b, sort_order, best_of, result_entered_by,
@@ -793,11 +1357,11 @@ async function handleGetFixtures(req: Request): Promise<Response> {
   const fixtures = (fixtureRows as unknown as FixtureRow[]).map((r) => {
     const a = playerMap.get(r.player_a_id);
     const b = playerMap.get(r.player_b_id);
-    const nameA = isWinnerOfPlayerId(r.player_a_id)
-      ? winnerOfPlayerName(r.player_a_id.slice(WINNER_OF_PREFIX.length))
+    const nameA = isBracketPlaceholderPlayerId(r.player_a_id)
+      ? placeholderPlayerName(r.player_a_id)
       : (a?.player_name ?? "");
-    const nameB = isWinnerOfPlayerId(r.player_b_id)
-      ? winnerOfPlayerName(r.player_b_id.slice(WINNER_OF_PREFIX.length))
+    const nameB = isBracketPlaceholderPlayerId(r.player_b_id)
+      ? placeholderPlayerName(r.player_b_id)
       : (b?.player_name ?? "");
     const result = r.score_a != null && r.score_b != null
       ? `${r.score_a}-${r.score_b}`
@@ -815,6 +1379,7 @@ async function handleGetFixtures(req: Request): Promise<Response> {
       scoreB: r.score_b,
       sortOrder: r.sort_order,
       bestOf: r.best_of ?? 3,
+      roundName: r.round_name ?? "",
       resultEnteredBy: r.result_entered_by ?? "",
       resultApproved: r.score_a == null || r.score_b == null ? true : r.result_approved !== false,
       resultApprovedBy: r.result_approved && r.result_approved_by ? r.result_approved_by : "",
@@ -1082,6 +1647,7 @@ const ADMIN_POST_ACTIONS = new Set([
   "upsertPlayer",
   "upsertHandicap",
   "upsertFixture",
+  "generateFixtures",
   "updateFixtureResult",
   "upsertBreak",
   "deleteBreak",
@@ -1382,7 +1948,7 @@ async function handleUpsertCompetition(data: Record<string, unknown>): Promise<R
     `;
   });
 
-  if (competitionType === "knockout") {
+  if (isBracketCompetitionType(competitionType)) {
     await ensureKnockoutCompGroup(compId);
   } else {
     await removeKnockoutCompGroupIfSafe(compId);
@@ -1500,6 +2066,10 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   const compId = String(data.compId ?? "").trim();
   const stage = String(data.stage ?? "").trim();
   const roundLabel = String(data.roundLabel ?? "").trim();
+  const roundNameRaw = data.roundName ?? data.round_name;
+  const roundName = roundNameRaw === undefined || roundNameRaw === null || roundNameRaw === ""
+    ? null
+    : String(roundNameRaw).trim();
   const playerAId = String(data.playerAId ?? "").trim();
   const playerBId = String(data.playerBId ?? "").trim();
   const groupIdRaw = data.groupId;
@@ -1536,7 +2106,7 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
   if (bestOf === null) return errorResponse("bestOf must be an odd number from 1 to 9");
 
   const sql = db();
-  await ensureWinnerOfPlayers(sql, playerAId, playerBId);
+  await ensureBracketPlaceholderPlayers(sql, playerAId, playerBId);
   const sa = scoreA === null ? null : Math.trunc(scoreA);
   const sb = scoreB === null ? null : Math.trunc(scoreB);
   const so = Math.trunc(sortOrder);
@@ -1548,6 +2118,7 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
         group_id = ${groupId},
         stage = ${stage},
         round_label = ${roundLabel},
+        round_name = ${roundName},
         player_a_id = ${playerAId},
         player_b_id = ${playerBId},
         match_date = ${matchDate},
@@ -1568,10 +2139,10 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
 
   await sql`
     insert into ierne_snooker.fixtures (
-      competition_id, group_id, stage, round_label,
+      competition_id, group_id, stage, round_label, round_name,
       player_a_id, player_b_id, match_date, score_a, score_b, sort_order, best_of, result_posted_at
     ) values (
-      ${compId}, ${groupId}, ${stage}, ${roundLabel},
+      ${compId}, ${groupId}, ${stage}, ${roundLabel}, ${roundName},
       ${playerAId}, ${playerBId}, ${matchDate}, ${sa}, ${sb}, ${so}, ${bestOf},
       case
         when ${sa !== null && sb !== null} then now()
@@ -1580,6 +2151,144 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
     )
   `;
   return jsonResponse({ success: true });
+}
+
+async function insertGeneratedFixtures(
+  sql: ReturnType<typeof postgres>,
+  compId: string,
+  fixtures: GeneratedFixture[],
+): Promise<void> {
+  const needsBye = fixtures.some(
+    (f) => isByePlayerId(f.playerAId) || isByePlayerId(f.playerBId),
+  );
+  if (needsBye) await ensureByePlayer(sql);
+
+  for (const f of fixtures) {
+    await ensureBracketPlaceholderPlayers(sql, f.playerAId, f.playerBId);
+    const sa = f.scoreA == null ? null : Math.trunc(f.scoreA);
+    const sb = f.scoreB == null ? null : Math.trunc(f.scoreB);
+    const hasResult = sa != null && sb != null;
+    await sql`
+      insert into ierne_snooker.fixtures (
+        competition_id, group_id, stage, round_label, round_name,
+        player_a_id, player_b_id, match_date, score_a, score_b, sort_order, best_of,
+        result_posted_at, result_approved, result_entered_by
+      ) values (
+        ${compId}, ${f.groupId}, ${f.stage}, ${f.roundLabel}, ${f.roundName},
+        ${f.playerAId}, ${f.playerBId}, null, ${sa}, ${sb}, ${f.sortOrder}, 3,
+        case when ${hasResult} then now() else null end,
+        ${hasResult},
+        ${hasResult ? "Admin" : null}
+      )
+    `;
+  }
+}
+
+async function handleGenerateFixtures(data: Record<string, unknown>): Promise<Response> {
+  const compId = String(data.compId ?? "").trim();
+  if (!compId) return errorResponse("compId required");
+  const regenerate = Boolean(data.regenerate);
+
+  const sql = db();
+  const compRows = await sql<CompetitionRow[]>`
+    select competition_id, name, starts_on, ends_on, is_current,
+           competition_type, parent_competition_id
+      from ierne_snooker.competitions
+     where competition_id = ${compId}
+  `;
+  if (!compRows.length) return errorResponse("Competition not found", 404);
+  const comp = compRows[0] as unknown as CompetitionRow;
+
+  const existingCountRows = await sql<{ cnt: number }[]>`
+    select count(*)::int as cnt
+      from ierne_snooker.fixtures
+     where competition_id = ${compId}
+  `;
+  const existingCount = Number((existingCountRows[0] as { cnt: number }).cnt) || 0;
+
+  if (existingCount > 0) {
+    if (!regenerate) {
+      return errorResponse(
+        "Fixtures already exist for this competition. Use regenerate to replace them.",
+        409,
+      );
+    }
+    // Treat bye pads as not "played" for regenerate eligibility.
+    const playedRows = await sql<{ ok: boolean }[]>`
+      select exists(
+        select 1 from ierne_snooker.fixtures
+         where competition_id = ${compId}
+           and score_a is not null
+           and score_b is not null
+           and player_a_id <> ${BYE_PLAYER_ID}
+           and player_b_id <> ${BYE_PLAYER_ID}
+      ) as ok
+    `;
+    if (Boolean((playedRows[0] as { ok: boolean }).ok)) {
+      return errorResponse(
+        "Cannot re-generate: one or more fixtures already have a result.",
+        409,
+      );
+    }
+    await sql`delete from ierne_snooker.breaks
+      where fixture_id in (
+        select fixture_id from ierne_snooker.fixtures where competition_id = ${compId}
+      )`;
+    await sql`delete from ierne_snooker.fixtures where competition_id = ${compId}`;
+  }
+
+  const competitionType = normalizeCompetitionType(comp.competition_type);
+  let generated: GeneratedFixture[] = [];
+
+  if (competitionType === "league") {
+    const groups = await loadCompetitionGroups(compId);
+    const members = await sql<CompetitionPlayerRow[]>`
+      select competition_id, group_id, player_id
+        from ierne_snooker.competition_players
+       where competition_id = ${compId}
+    `;
+    let sortStart = 1;
+    for (const g of groups) {
+      if (g.group_id === KNOCKOUT_GROUP_ID) continue;
+      const ids = (members as unknown as CompetitionPlayerRow[])
+        .filter((m) => m.group_id === g.group_id)
+        .map((m) => m.player_id);
+      const rr = generateLeagueRoundRobin(g.group_id, ids, sortStart);
+      generated = generated.concat(rr);
+      sortStart += rr.length + 1;
+    }
+    if (!generated.length) {
+      return errorResponse("No group players found to generate league fixtures");
+    }
+  } else if (competitionType === "knockout" || competitionType === "double-eliminator") {
+    await ensureKnockoutCompGroup(compId);
+    const members = await sql<CompetitionPlayerRow[]>`
+      select competition_id, group_id, player_id
+        from ierne_snooker.competition_players
+       where competition_id = ${compId}
+         and group_id = ${KNOCKOUT_GROUP_ID}
+    `;
+    const ids = (members as unknown as CompetitionPlayerRow[])
+      .map((m) => m.player_id)
+      .filter((id) => id && !isBracketPlaceholderPlayerId(id) && !isByePlayerId(id));
+    try {
+      generated = competitionType === "double-eliminator"
+        ? generateDoubleElimFixtures(ids)
+        : generateKnockoutFixtures(ids);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return errorResponse(message);
+    }
+  } else {
+    return errorResponse("Unknown competition type");
+  }
+
+  await insertGeneratedFixtures(sql, compId, generated);
+  return jsonResponse({
+    success: true,
+    created: generated.length,
+    regenerated: regenerate && existingCount > 0,
+  });
 }
 
 async function requireResultEditor(
@@ -2145,6 +2854,7 @@ async function dispatchPost(envelope: PostEnvelope, req: Request): Promise<Respo
     case "upsertCompetitionGroup": return handleUpsertCompetitionGroup(envelope.data);
     case "deleteCompetitionGroup": return handleDeleteCompetitionGroup(envelope.data);
     case "upsertFixture": return handleUpsertFixture(envelope.data);
+    case "generateFixtures": return handleGenerateFixtures(envelope.data);
     case "approveFixtureResult": return handleApproveFixtureResult(envelope);
     case "deleteFixture": return handleDeleteFixture(envelope.data);
     case "deleteHandicap": return handleDeleteHandicap(envelope.data);

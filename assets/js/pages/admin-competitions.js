@@ -12,16 +12,29 @@ var AdminCompetitionsPage = (function () {
   }
 
   function typeLabel(t) {
-    return t === 'knockout' ? 'Knockout' : 'League';
+    var n = normalizeCompetitionType(t);
+    if (n === 'knockout') return 'Knockout';
+    if (n === 'double-eliminator') return 'Double-Eliminator';
+    return 'League';
   }
 
   function normalizeCompetitionType(compOrType) {
     if (!compOrType) return 'league';
-    if (typeof compOrType === 'string') {
-      return compOrType.toLowerCase() === 'knockout' ? 'knockout' : 'league';
+    var raw =
+      typeof compOrType === 'string'
+        ? compOrType
+        : compOrType.competitionType || compOrType.competition_type || 'league';
+    var t = String(raw).trim().toLowerCase();
+    if (t === 'knockout') return 'knockout';
+    if (t === 'double-eliminator' || t === 'double_eliminator' || t === 'doubleelim') {
+      return 'double-eliminator';
     }
-    var raw = compOrType.competitionType || compOrType.competition_type || 'league';
-    return String(raw).toLowerCase() === 'knockout' ? 'knockout' : 'league';
+    return 'league';
+  }
+
+  function isBracketTypeValue(t) {
+    var n = normalizeCompetitionType(t);
+    return n === 'knockout' || n === 'double-eliminator';
   }
 
   function playerGroup(entry) {
@@ -77,7 +90,7 @@ var AdminCompetitionsPage = (function () {
     el: {},
 
     isKnockoutType: function () {
-      return self.el.cType && self.el.cType.value === 'knockout';
+      return isBracketTypeValue(self.el.cType ? self.el.cType.value : 'league');
     },
 
     isLeagueType: function () {
@@ -777,7 +790,7 @@ var AdminCompetitionsPage = (function () {
 
       me.persistCompHeader()
         .then(function () {
-          if (competitionType === 'knockout') {
+          if (isBracketTypeValue(competitionType)) {
             var selected = me.getCheckedPlayerIds(me.el.knockoutPlayers);
             return me.syncKnockoutRoster(id, selected);
           }
