@@ -532,33 +532,6 @@ var KnockoutBracket = (function () {
     );
   }
 
-  function findFeederLeftIdx(links, rightIdx, slot) {
-    for (var i = 0; i < links.length; i++) {
-      if (links[i].rightIdx === rightIdx && links[i].rightSlot === slot) {
-        return links[i].leftIdx;
-      }
-    }
-    return -1;
-  }
-
-  /** Y of top-row bottom edge (arena-relative) — centre of a normal 2-row match. */
-  function feederTopRowBottomY(matchEl, arenaTop) {
-    if (!matchEl) return null;
-    var rows = matchEl.querySelectorAll('.ko-bracket-match__row');
-    var row = rows.length ? rows[0] : matchEl;
-    var r = row.getBoundingClientRect();
-    return r.bottom - arenaTop;
-  }
-
-  /** Y of bottom-row top edge (arena-relative) — centre of a normal 2-row match. */
-  function feederBottomRowTopY(matchEl, arenaTop) {
-    if (!matchEl) return null;
-    var rows = matchEl.querySelectorAll('.ko-bracket-match__row');
-    var row = rows.length ? rows[rows.length - 1] : matchEl;
-    var r = row.getBoundingClientRect();
-    return r.top - arenaTop;
-  }
-
   function clearFeederLayout(scrollTrack) {
     scrollTrack.querySelectorAll('.ko-bracket-stage').forEach(function (col) {
       var list = col.querySelector('.ko-bracket-stage__list');
@@ -587,59 +560,94 @@ var KnockoutBracket = (function () {
     });
   }
 
-  function matchCardFromUnit(unit) {
-    if (!unit) return null;
-    if (unit.matches && unit.matches('.ko-bracket-match')) return unit;
-    return (
-      unit.querySelector('.ko-bracket-match:not(.ko-bracket-match--gf-stub)') || unit
-    );
+  function cardTopY(card, arenaTop) {
+    if (!card) return null;
+    return card.getBoundingClientRect().top - arenaTop;
   }
 
-  function computeCentrePairTops(units, leftCards, links, arenaTop) {
-    var n = units.length;
-    if (n < 2 || !leftCards.length) return null;
+  function matchRowHeight(card) {
+    if (!card) return 0;
+    var row = card.querySelector('.ko-bracket-match__row');
+    if (row && row.offsetHeight) return row.offsetHeight;
+    return card.offsetHeight || 0;
+  }
 
-    var midA = Math.floor((n - 1) / 2);
-    var midB = midA + 1;
-    var leftIdxB = findFeederLeftIdx(links, midA, 'b');
-    var leftIdxA = findFeederLeftIdx(links, midB, 'a');
-    if (leftIdxB < 0) leftIdxB = Math.floor((leftCards.length - 1) / 2);
-    if (leftIdxA < 0) leftIdxA = Math.min(leftCards.length - 1, leftIdxB + 1);
-
-    var feederB = leftCards[leftIdxB];
-    var feederA = leftCards[leftIdxA];
-    var ySlotB = feederTopRowBottomY(feederB, arenaTop);
-    var ySlotA = feederBottomRowTopY(feederA, arenaTop);
-    if (ySlotB == null || ySlotA == null || !(ySlotA > ySlotB)) {
-      var prevMidA = Math.floor((leftCards.length - 1) / 2);
-      var prevMidB = Math.min(leftCards.length - 1, prevMidA + 1);
-      var pb = leftCards[prevMidA].getBoundingClientRect();
-      var pa = leftCards[prevMidB].getBoundingClientRect();
-      ySlotB = pb.top + pb.height / 2 - arenaTop;
-      ySlotA = pa.top + pa.height / 2 - arenaTop;
+  /** Vertical gap between consecutive packed match cards (first-round spacing). */
+  function measurePackedMatchGap(cards) {
+    if (!cards || cards.length < 2) return 0;
+    var sum = 0;
+    var count = 0;
+    for (var i = 0; i < cards.length - 1; i++) {
+      var a = cards[i].getBoundingClientRect();
+      var b = cards[i + 1].getBoundingClientRect();
+      var gap = b.top - a.bottom;
+      if (gap >= 0) {
+        sum += gap;
+        count++;
+      }
     }
-    if (!(ySlotA > ySlotB)) return null;
+    return count ? sum / count : 0;
+  }
 
-    var unitA = units[midA];
-    var unitB = units[midB];
-    var cardA = matchCardFromUnit(unitA);
-    var cardB = matchCardFromUnit(unitB);
-    var rowB = matchRowForSlot(cardA, 'b');
-    var rowA = matchRowForSlot(cardB, 'a');
-    var unitARect = unitA.getBoundingClientRect();
-    var unitBRect = unitB.getBoundingClientRect();
-    var rowBRect = (rowB || cardA).getBoundingClientRect();
-    var rowARect = (rowA || cardB).getBoundingClientRect();
-    var offsetB = rowBRect.top + rowBRect.height / 2 - unitARect.top;
-    var offsetA = rowARect.top + rowARect.height / 2 - unitBRect.top;
+  function topsRespectMinGap(tops, units, minGap) {
+    if (!tops || tops.length < 2) return true;
+    var gap = Math.max(0, minGap || 0);
+    for (var i = 0; i < tops.length - 1; i++) {
+      var h = (units[i] && units[i].offsetHeight) || 0;
+      if (tops[i] + h + gap > tops[i + 1] + 0.5) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Later rounds: first match top nearly level with the previous round's second
+   * match, nudged 25% of a match-row height lower; last match top nearly level
+   * with the previous second-last, nudged 25% higher. Remaining matches are
+   * spaced evenly between those tops. If that nudge would leave less than the
+   * first-round vertical gap between cards, reduce it (down to 0).
+   */
+  function computeAdjacentRoundTops(units, leftCards, arenaTop, minGap) {
+    var n = units.length;
+    var L = leftCards.length;
+    if (n < 1 || L < 2) return null;
+
+    var second = leftCards[1];
+    var secondLast = leftCards[L - 2];
+    var topSecond = cardTopY(second, arenaTop);
+    var topSecondLast = cardTopY(secondLast, arenaTop);
+    if (topSecond == null || topSecondLast == null) return null;
+
+    var lo = Math.min(topSecond, topSecondLast);
+    var hi = Math.max(topSecond, topSecondLast);
+    var span = hi - lo;
+    var preferredNudge = 0.25 * matchRowHeight(second);
+    var nudge = preferredNudge;
+    var gap = Math.max(0, minGap || 0);
+
+    if (n > 1) {
+      var minPitch = 0;
+      for (var p = 0; p < n - 1; p++) {
+        var h = (units[p] && units[p].offsetHeight) || 0;
+        minPitch = Math.max(minPitch, h + gap);
+      }
+      // (span - 2*nudge) / (n-1) >= minPitch  →  nudge <= (span - minPitch*(n-1)) / 2
+      var maxNudge = (span - minPitch * (n - 1)) / 2;
+      if (!(maxNudge > 0)) maxNudge = 0;
+      if (nudge > maxNudge) nudge = maxNudge;
+    }
+
+    var topA = lo + nudge;
+    var topB = hi - nudge;
+    if (n > 1 && !(topB > topA)) return null;
 
     var tops = [];
-    tops[midA] = ySlotB - offsetB;
-    tops[midB] = ySlotA - offsetA;
-    var pitch = tops[midB] - tops[midA];
-    if (!(pitch > 0)) return null;
-    for (var i = 0; i < n; i++) {
-      tops[i] = tops[midA] + (i - midA) * pitch;
+    if (n === 1) {
+      tops[0] = (topA + topB) / 2;
+    } else {
+      for (var i = 0; i < n; i++) {
+        tops[i] = topA + ((topB - topA) * i) / (n - 1);
+      }
+      if (!topsRespectMinGap(tops, units, gap)) return null;
     }
     return tops;
   }
@@ -654,10 +662,10 @@ var KnockoutBracket = (function () {
   }
 
   /**
-   * Centre-pair driver for shrinking rounds (winners-style): slot-b / slot-a
-   * centres line up with the previous round's feeder row edges.
-   * Expanding / irregular losers rounds stay packed and centred so matches
-   * are not clipped above the arena.
+   * Leftmost round keeps its natural packed spacing. Each later shrinking round
+   * is placed from the previous round's second / second-last tops (±25% row
+   * height, reduced if needed so gaps stay at least the first-round gap).
+   * Expanding / irregular losers rounds stay packed and centred.
    */
   function layoutFeederDrivenGaps(scrollTrack, stagesData) {
     var stageCols = Array.prototype.slice.call(
@@ -687,6 +695,7 @@ var KnockoutBracket = (function () {
     var firstArena = stageCols[0].querySelector('.ko-bracket-stage__arena');
     if (!firstArena) return;
     var arenaTop = firstArena.getBoundingClientRect().top;
+    var minGap = measurePackedMatchGap(stageMatchCards(stageCols[0]));
 
     for (var s = 1; s < stageCols.length; s++) {
       var leftCol = stageCols[s - 1];
@@ -698,15 +707,11 @@ var KnockoutBracket = (function () {
       var n = units.length;
       if (!rightList || !rightArena || n < 1) continue;
 
-      var links = buildLinks(stagesData[s - 1], stagesData[s]);
       var tops = null;
 
-      if (n === 1) {
-        var onlyH = units[0].offsetHeight || 0;
-        tops = [Math.round((arenaHeight - onlyH) / 2)];
-      } else if (n < leftCards.length) {
-        // Classic shrink (e.g. W16→W8). Skip when the round grows (common in LB).
-        tops = computeCentrePairTops(units, leftCards, links, arenaTop);
+      if (n < leftCards.length) {
+        // Classic shrink (e.g. W16→W8, SF→F). Skip when the round grows (LB).
+        tops = computeAdjacentRoundTops(units, leftCards, arenaTop, minGap);
         if (!topsFitArena(tops, units, arenaHeight)) tops = null;
       }
 
@@ -730,6 +735,9 @@ var KnockoutBracket = (function () {
         el.style.width = '100%';
         el.style.top = Math.round(tops[j]) + 'px';
       }
+
+      // Next round measures from these laid-out positions.
+      arenaTop = firstArena.getBoundingClientRect().top;
     }
   }
 

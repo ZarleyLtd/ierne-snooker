@@ -157,7 +157,12 @@ button.player-inline-link:active {
   font-weight: 600;
 }
 
-/* Later rounds: absolute tops from centre-pair slot-edge drivers */
+/* Wider stage columns so placeholder names (e.g. "Quarter-final 1 Winner") fit */
+.ko-bracket-stage {
+  flex: 0 0 min(88vw, 17rem);
+}
+
+/* Later rounds: absolute tops from prior-round second / second-last ±25% row height */
 .ko-bracket-stage__list--feeder {
   position: relative;
   width: 100%;

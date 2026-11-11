@@ -626,8 +626,47 @@ var KnockoutRounds = (function () {
     },
 
     winnerOfDisplayLabel: function (roundCode, fixtures) {
+      var c = String(roundCode || '').trim();
+      if (!c) return 'Winner';
+
+      var parsed = this.parseStageMatch(c);
+      var matchNum = parsed.matchNum || 0;
+      var stageKey = this.stageKeyFor(c);
+      var stageLabel = this.stageLabelFor(c);
+      if (fixtures && fixtures.length && typeof this.stageLabelsForFixtures === 'function') {
+        var map = this.stageLabelsForFixtures(fixtures);
+        if (map[stageKey]) stageLabel = map[stageKey];
+      }
+
+      if (
+        stageKey === 'QF' ||
+        /^Quarter-final/i.test(stageLabel) ||
+        /^Quarter Final/i.test(stageLabel)
+      ) {
+        return (matchNum ? 'QF ' + matchNum : 'QF') + ' Winner';
+      }
+      if (
+        stageKey === 'SF' ||
+        /^Semi-final/i.test(stageLabel) ||
+        /^Semi Final/i.test(stageLabel)
+      ) {
+        return (matchNum ? 'SF ' + matchNum : 'SF') + ' Winner';
+      }
+
+      // Earlier winners-bracket / single-elim rounds: short "Match N Winner".
+      var earlyRound =
+        stageKey === 'L16' ||
+        stageKey === 'L32' ||
+        stageLabel === 'Round' ||
+        stageLabel === 'Preliminary' ||
+        /^Round \d+/i.test(stageLabel) ||
+        (this.isWinnersBracketCode(c) && stageKey !== 'WF');
+      if (earlyRound) {
+        return matchNum ? 'Match ' + matchNum + ' Winner' : 'Winner';
+      }
+
       var label = this.matchLabelFor(roundCode, fixtures);
-      var base = label || String(roundCode || '').trim();
+      var base = label || c;
       return base ? base + ' Winner' : 'Winner';
     },
 
