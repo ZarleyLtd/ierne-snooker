@@ -216,7 +216,12 @@ export async function registerAccount(sql: Sql, req: Request, data: Record<strin
   }
   const passErr = validatePassword(password);
   if (passErr) throw new ApiError(passErr);
-  if (!playerId || playerId.startsWith("wo:")) {
+  if (
+    !playerId ||
+    playerId.startsWith("wo:") ||
+    playerId.startsWith("lo:") ||
+    playerId.toLowerCase() === "bye"
+  ) {
     throw new ApiError("Choose one of the players already in the league.");
   }
 

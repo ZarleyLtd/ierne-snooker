@@ -507,6 +507,289 @@ async function ensureWinnerOfPlayers(
   await ensureBracketPlaceholderPlayers(sql, ...playerIds);
 }
 
+function isInternalPlayerId(playerId: string | null | undefined): boolean {
+  const id = String(playerId || "").trim();
+  return isBracketPlaceholderPlayerId(id) || isByePlayerId(id);
+}
+
+/** Delete wo:/lo:/bye player rows that nothing references anymore. */
+async function pruneUnusedInternalPlayers(
+  sql: ReturnType<typeof postgres>,
+  candidateIds?: string[],
+): Promise<number> {
+  const candidates = (candidateIds || [])
+    .map((id) => String(id || "").trim())
+    .filter((id) => isInternalPlayerId(id));
+  const rows = candidates.length
+    ? await sql<{ player_id: string }[]>`
+        delete from ierne_snooker.players p
+         where p.player_id = any(${candidates}::text[])
+           and not exists (
+             select 1 from ierne_snooker.fixtures f
+              where f.player_a_id = p.player_id or f.player_b_id = p.player_id
+           )
+           and not exists (
+             select 1 from ierne_snooker.competition_players cp
+              where cp.player_id = p.player_id
+           )
+           and not exists (
+             select 1 from ierne_snooker.handicaps h
+              where h.player_id = p.player_id
+           )
+           and not exists (
+             select 1 from ierne_snooker.breaks b
+              where b.player_id = p.player_id
+           )
+           and not exists (
+             select 1 from ierne_snooker.accounts a
+              where a.player_id = p.player_id
+           )
+        returning p.player_id
+      `
+    : await sql<{ player_id: string }[]>`
+        delete from ierne_snooker.players p
+         where (
+              p.player_id like ${WINNER_OF_PREFIX + "%"}
+           or p.player_id like ${LOSER_OF_PREFIX + "%"}
+           or p.player_id = ${BYE_PLAYER_ID}
+         )
+           and not exists (
+             select 1 from ierne_snooker.fixtures f
+              where f.player_a_id = p.player_id or f.player_b_id = p.player_id
+           )
+           and not exists (
+             select 1 from ierne_snooker.competition_players cp
+              where cp.player_id = p.player_id
+           )
+           and not exists (
+             select 1 from ierne_snooker.handicaps h
+              where h.player_id = p.player_id
+           )
+           and not exists (
+             select 1 from ierne_snooker.breaks b
+              where b.player_id = p.player_id
+           )
+           and not exists (
+             select 1 from ierne_snooker.accounts a
+              where a.player_id = p.player_id
+           )
+        returning p.player_id
+      `;
+  return rows.length;
+}
+
+function matchWinnerLoser(
+  playerAId: string,
+  playerBId: string,
+  scoreA: number,
+  scoreB: number,
+): { winnerId: string; loserId: string } | null {
+  if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB) || scoreA === scoreB) {
+    return null;
+  }
+  if (isInternalPlayerId(playerAId) || isInternalPlayerId(playerBId)) {
+    return null;
+  }
+  if (scoreA > scoreB) return { winnerId: playerAId, loserId: playerBId };
+  return { winnerId: playerBId, loserId: playerAId };
+}
+
+/**
+ * After a knockout/DE result is set, replace wo:/lo: slots in later fixtures
+ * with the real winner/loser, then drop unused placeholder player rows.
+ */
+async function materializeBracketOutcome(
+  sql: ReturnType<typeof postgres>,
+  opts: {
+    competitionId: string;
+    sourceFixtureId: string;
+    roundLabel: string;
+    winnerId: string;
+    loserId: string;
+  },
+): Promise<void> {
+  const code = String(opts.roundLabel || "").trim();
+  if (!code || !opts.competitionId || !opts.sourceFixtureId) return;
+  if (isInternalPlayerId(opts.winnerId) || isInternalPlayerId(opts.loserId)) return;
+
+  const wo = winnerOfId(code);
+  const lo = loserOfId(code);
+
+  await sql`
+    update ierne_snooker.fixtures
+       set player_a_id = ${opts.winnerId}, updated_at = now()
+     where competition_id = ${opts.competitionId}
+       and fixture_id <> ${opts.sourceFixtureId}::uuid
+       and player_a_id = ${wo}
+  `;
+  await sql`
+    update ierne_snooker.fixtures
+       set player_b_id = ${opts.winnerId}, updated_at = now()
+     where competition_id = ${opts.competitionId}
+       and fixture_id <> ${opts.sourceFixtureId}::uuid
+       and player_b_id = ${wo}
+  `;
+  await sql`
+    update ierne_snooker.fixtures
+       set player_a_id = ${opts.loserId}, updated_at = now()
+     where competition_id = ${opts.competitionId}
+       and fixture_id <> ${opts.sourceFixtureId}::uuid
+       and player_a_id = ${lo}
+  `;
+  await sql`
+    update ierne_snooker.fixtures
+       set player_b_id = ${opts.loserId}, updated_at = now()
+     where competition_id = ${opts.competitionId}
+       and fixture_id <> ${opts.sourceFixtureId}::uuid
+       and player_b_id = ${lo}
+  `;
+
+  await pruneUnusedInternalPlayers(sql, [wo, lo]);
+}
+
+/**
+ * When a result is cleared, put wo:/lo: back into unplayed later fixtures that
+ * still hold the materialized winner/loser (skip if that player has already
+ * advanced into a scored later match).
+ */
+async function restoreBracketPlaceholders(
+  sql: ReturnType<typeof postgres>,
+  opts: {
+    competitionId: string;
+    sourceFixtureId: string;
+    roundLabel: string;
+    winnerId: string;
+    loserId: string;
+  },
+): Promise<void> {
+  const code = String(opts.roundLabel || "").trim();
+  if (!code || !opts.competitionId || !opts.sourceFixtureId) return;
+  if (isInternalPlayerId(opts.winnerId) || isInternalPlayerId(opts.loserId)) return;
+
+  const wo = winnerOfId(code);
+  const lo = loserOfId(code);
+  await ensureBracketPlaceholderPlayers(sql, wo, lo);
+
+  const winnerAdvanced = await sql<{ ok: boolean }[]>`
+    select exists(
+      select 1 from ierne_snooker.fixtures f
+       where f.competition_id = ${opts.competitionId}
+         and f.fixture_id <> ${opts.sourceFixtureId}::uuid
+         and (f.player_a_id = ${opts.winnerId} or f.player_b_id = ${opts.winnerId})
+         and f.score_a is not null
+         and f.score_b is not null
+    ) as ok
+  `;
+  const loserAdvanced = await sql<{ ok: boolean }[]>`
+    select exists(
+      select 1 from ierne_snooker.fixtures f
+       where f.competition_id = ${opts.competitionId}
+         and f.fixture_id <> ${opts.sourceFixtureId}::uuid
+         and (f.player_a_id = ${opts.loserId} or f.player_b_id = ${opts.loserId})
+         and f.score_a is not null
+         and f.score_b is not null
+    ) as ok
+  `;
+
+  if (!Boolean(winnerAdvanced[0]?.ok)) {
+    await sql`
+      update ierne_snooker.fixtures
+         set player_a_id = ${wo}, updated_at = now()
+       where competition_id = ${opts.competitionId}
+         and fixture_id <> ${opts.sourceFixtureId}::uuid
+         and player_a_id = ${opts.winnerId}
+         and score_a is null
+         and score_b is null
+    `;
+    await sql`
+      update ierne_snooker.fixtures
+         set player_b_id = ${wo}, updated_at = now()
+       where competition_id = ${opts.competitionId}
+         and fixture_id <> ${opts.sourceFixtureId}::uuid
+         and player_b_id = ${opts.winnerId}
+         and score_a is null
+         and score_b is null
+    `;
+  }
+
+  if (!Boolean(loserAdvanced[0]?.ok)) {
+    await sql`
+      update ierne_snooker.fixtures
+         set player_a_id = ${lo}, updated_at = now()
+       where competition_id = ${opts.competitionId}
+         and fixture_id <> ${opts.sourceFixtureId}::uuid
+         and player_a_id = ${opts.loserId}
+         and score_a is null
+         and score_b is null
+    `;
+    await sql`
+      update ierne_snooker.fixtures
+         set player_b_id = ${lo}, updated_at = now()
+       where competition_id = ${opts.competitionId}
+         and fixture_id <> ${opts.sourceFixtureId}::uuid
+         and player_b_id = ${opts.loserId}
+         and score_a is null
+         and score_b is null
+    `;
+  }
+}
+
+async function syncBracketPlaceholdersForResult(
+  sql: ReturnType<typeof postgres>,
+  fixture: {
+    fixture_id: string;
+    competition_id: string;
+    stage: string;
+    round_label: string;
+    player_a_id: string;
+    player_b_id: string;
+    score_a: number | null;
+    score_b: number | null;
+  },
+  nextScoreA: number | null,
+  nextScoreB: number | null,
+): Promise<void> {
+  if (fixture.stage !== "knockout") return;
+  const code = String(fixture.round_label || "").trim();
+  if (!code) return;
+
+  const prev = fixture.score_a != null && fixture.score_b != null
+    ? matchWinnerLoser(
+      fixture.player_a_id,
+      fixture.player_b_id,
+      Number(fixture.score_a),
+      Number(fixture.score_b),
+    )
+    : null;
+  const next = nextScoreA != null && nextScoreB != null
+    ? matchWinnerLoser(
+      fixture.player_a_id,
+      fixture.player_b_id,
+      nextScoreA,
+      nextScoreB,
+    )
+    : null;
+
+  if (prev && (!next || prev.winnerId !== next.winnerId || prev.loserId !== next.loserId)) {
+    await restoreBracketPlaceholders(sql, {
+      competitionId: fixture.competition_id,
+      sourceFixtureId: fixture.fixture_id,
+      roundLabel: code,
+      winnerId: prev.winnerId,
+      loserId: prev.loserId,
+    });
+  }
+  if (next) {
+    await materializeBracketOutcome(sql, {
+      competitionId: fixture.competition_id,
+      sourceFixtureId: fixture.fixture_id,
+      roundLabel: code,
+      winnerId: next.winnerId,
+      loserId: next.loserId,
+    });
+  }
+}
+
 function nextPow2(n: number): number {
   let p = 1;
   while (p < n) p *= 2;
@@ -1248,6 +1531,8 @@ async function handleGetPlayers(req: Request): Promise<Response> {
              and f.score_b is not null
         ) mc on true
        where p.player_id not like ${WINNER_OF_PREFIX + "%"}
+         and p.player_id not like ${LOSER_OF_PREFIX + "%"}
+         and p.player_id <> ${BYE_PLAYER_ID}
        order by p.player_name asc
     `;
     return jsonResponse({
@@ -1274,6 +1559,9 @@ async function handleGetPlayers(req: Request): Promise<Response> {
     join ierne_snooker.players p on p.player_id = cp.player_id
     where cp.competition_id = ${compId}
       and (${groupParam}::text is null or cp.group_id = ${groupParam})
+      and p.player_id not like ${WINNER_OF_PREFIX + "%"}
+      and p.player_id not like ${LOSER_OF_PREFIX + "%"}
+      and p.player_id <> ${BYE_PLAYER_ID}
     order by p.player_name asc
   `;
   return jsonResponse({
@@ -1834,6 +2122,9 @@ async function handleUpsertPlayer(data: Record<string, unknown>): Promise<Respon
   const playerId = String(data.playerId ?? "").trim();
   const playerName = String(data.playerName ?? "").trim();
   if (!playerId || !playerName) return errorResponse("playerId and playerName required");
+  if (isInternalPlayerId(playerId)) {
+    return errorResponse("Internal bracket placeholders cannot be managed as players");
+  }
   const active = data.active === undefined ? true : Boolean(data.active);
   const sql = db();
   await sql`
@@ -1960,32 +2251,67 @@ async function handleDeleteCompetition(data: Record<string, unknown>): Promise<R
   const compId = String(data.compId ?? "").trim();
   if (!compId) return errorResponse("compId required");
   const sql = db();
-  const [fx, children] = await Promise.all([
-    sql<{ ok: boolean }[]>`
-      select exists(
-        select 1 from ierne_snooker.fixtures where competition_id = ${compId}
-      ) as ok
-    `,
-    sql<{ ok: boolean }[]>`
-      select exists(
-        select 1 from ierne_snooker.competitions
-         where parent_competition_id = ${compId}
-      ) as ok
-    `,
-  ]);
-  if (Boolean((fx[0] as { ok: boolean }).ok)) {
-    return errorResponse(
-      "Cannot delete competition: fixtures still exist. Delete or move those fixtures first.",
-      409,
-    );
-  }
+
+  const compRows = await sql<{ competition_id: string }[]>`
+    select competition_id from ierne_snooker.competitions where competition_id = ${compId}
+  `;
+  if (!compRows.length) return errorResponse("Competition not found", 404);
+
+  const children = await sql<{ ok: boolean }[]>`
+    select exists(
+      select 1 from ierne_snooker.competitions
+       where parent_competition_id = ${compId}
+    ) as ok
+  `;
   if (Boolean((children[0] as { ok: boolean }).ok)) {
     return errorResponse(
       "Cannot delete competition: child competitions still reference it.",
       409,
     );
   }
+
+  // Real results block delete; bye pads and unscored fixtures do not.
+  const results = await sql<{ ok: boolean }[]>`
+    select exists(
+      select 1 from ierne_snooker.fixtures
+       where competition_id = ${compId}
+         and score_a is not null
+         and score_b is not null
+         and player_a_id <> ${BYE_PLAYER_ID}
+         and player_b_id <> ${BYE_PLAYER_ID}
+    ) as ok
+  `;
+  if (Boolean((results[0] as { ok: boolean }).ok)) {
+    return errorResponse(
+      "Cannot delete this competition while it still has results. Delete the results first, then try again.",
+      409,
+    );
+  }
+
+  const slipRows = await sql<{ fixture_id: string; result_slip_path: string | null }[]>`
+    select fixture_id, result_slip_path
+      from ierne_snooker.fixtures
+     where competition_id = ${compId}
+  `;
+
+  await sql`delete from ierne_snooker.breaks
+    where fixture_id in (
+      select fixture_id from ierne_snooker.fixtures where competition_id = ${compId}
+    )`;
+  await sql`delete from ierne_snooker.fixtures where competition_id = ${compId}`;
+  // competition_players / competition_groups cascade from competitions.
   await sql`delete from ierne_snooker.competitions where competition_id = ${compId}`;
+  await pruneUnusedInternalPlayers(sql);
+
+  for (const row of slipRows) {
+    const paths = [
+      resultSlipPendingPath(row.fixture_id),
+      resultSlipCommittedPath(row.fixture_id),
+    ];
+    if (row.result_slip_path) paths.push(row.result_slip_path);
+    await deleteSlipPaths(paths);
+  }
+
   return jsonResponse({ success: true });
 }
 
@@ -2107,11 +2433,28 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
 
   const sql = db();
   await ensureBracketPlaceholderPlayers(sql, playerAId, playerBId);
+  if (isByePlayerId(playerAId) || isByePlayerId(playerBId)) await ensureByePlayer(sql);
   const sa = scoreA === null ? null : Math.trunc(scoreA);
   const sb = scoreB === null ? null : Math.trunc(scoreB);
   const so = Math.trunc(sortOrder);
 
   if (fixtureId) {
+    const priorRows = await sql<{
+      fixture_id: string;
+      competition_id: string;
+      stage: string;
+      round_label: string;
+      player_a_id: string;
+      player_b_id: string;
+      score_a: number | null;
+      score_b: number | null;
+    }[]>`
+      select fixture_id, competition_id, stage, round_label,
+             player_a_id, player_b_id, score_a, score_b
+        from ierne_snooker.fixtures
+       where fixture_id = ${fixtureId}::uuid
+    `;
+    const prior = priorRows[0];
     await sql`
       update ierne_snooker.fixtures set
         competition_id = ${compId},
@@ -2134,10 +2477,25 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
         updated_at = now()
       where fixture_id = ${fixtureId}::uuid
     `;
+    if (prior) {
+      // Restore against the prior pairing/scores, then materialize from the saved row.
+      await syncBracketPlaceholdersForResult(sql, prior, null, null);
+      await syncBracketPlaceholdersForResult(sql, {
+        fixture_id: fixtureId,
+        competition_id: compId,
+        stage,
+        round_label: roundLabel,
+        player_a_id: playerAId,
+        player_b_id: playerBId,
+        score_a: null,
+        score_b: null,
+      }, sa, sb);
+    }
+    await pruneUnusedInternalPlayers(sql);
     return jsonResponse({ success: true });
   }
 
-  await sql`
+  const inserted = await sql<{ fixture_id: string }[]>`
     insert into ierne_snooker.fixtures (
       competition_id, group_id, stage, round_label, round_name,
       player_a_id, player_b_id, match_date, score_a, score_b, sort_order, best_of, result_posted_at
@@ -2149,7 +2507,21 @@ async function handleUpsertFixture(data: Record<string, unknown>): Promise<Respo
         else null
       end
     )
+    returning fixture_id
   `;
+  const newId = inserted[0]?.fixture_id;
+  if (newId && sa != null && sb != null) {
+    await syncBracketPlaceholdersForResult(sql, {
+      fixture_id: newId,
+      competition_id: compId,
+      stage,
+      round_label: roundLabel,
+      player_a_id: playerAId,
+      player_b_id: playerBId,
+      score_a: null,
+      score_b: null,
+    }, sa, sb);
+  }
   return jsonResponse({ success: true });
 }
 
@@ -2235,6 +2607,7 @@ async function handleGenerateFixtures(data: Record<string, unknown>): Promise<Re
         select fixture_id from ierne_snooker.fixtures where competition_id = ${compId}
       )`;
     await sql`delete from ierne_snooker.fixtures where competition_id = ${compId}`;
+    await pruneUnusedInternalPlayers(sql);
   }
 
   const competitionType = normalizeCompetitionType(comp.competition_type);
@@ -2284,6 +2657,7 @@ async function handleGenerateFixtures(data: Record<string, unknown>): Promise<Re
   }
 
   await insertGeneratedFixtures(sql, compId, generated);
+  await pruneUnusedInternalPlayers(sql);
   return jsonResponse({
     success: true,
     created: generated.length,
@@ -2428,22 +2802,34 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
   const privileged = gate.admin || !!actor?.isAdmin || !!actor?.isApprover;
   const approved = clearing || privileged;
   const priorRows = await sql<{
+    fixture_id: string;
+    competition_id: string;
+    stage: string;
+    round_label: string;
+    player_a_id: string;
+    player_b_id: string;
+    score_a: number | null;
+    score_b: number | null;
     result_entered_by: string | null;
     result_approved: boolean;
     result_approved_by: string | null;
   }[]>`
-    select result_entered_by, result_approved, result_approved_by
+    select fixture_id, competition_id, stage, round_label,
+           player_a_id, player_b_id, score_a, score_b,
+           result_entered_by, result_approved, result_approved_by
     from ierne_snooker.fixtures
     where fixture_id = ${fixtureId}::uuid
   `;
-  const priorEntered = String(priorRows[0]?.result_entered_by || "").trim();
+  const prior = priorRows[0];
+  if (!prior) return errorResponse("Fixture not found", 404);
+  const priorEntered = String(prior.result_entered_by || "").trim();
   const priorByPlayer = priorEntered !== "" && priorEntered !== "Admin";
   const subsequentApproval = approved && !clearing && priorByPlayer &&
-    priorRows[0]?.result_approved === false && privileged;
+    prior.result_approved === false && privileged;
   const preservePlayerEntry = approved && !clearing && priorByPlayer &&
-    priorRows[0]?.result_approved === true;
+    prior.result_approved === true;
   const keepExistingApproval = preservePlayerEntry &&
-    String(priorRows[0]?.result_approved_by || "").trim() !== "";
+    String(prior.result_approved_by || "").trim() !== "";
   const enteredByToStore = subsequentApproval || preservePlayerEntry ? priorEntered : enteredBy;
   const approvedBy = subsequentApproval ? await resultApprovedByLabel(envelope) : null;
   if (hasMatchDate) {
@@ -2498,6 +2884,7 @@ async function handleUpdateFixtureResult(envelope: PostEnvelope): Promise<Respon
       where fixture_id = ${fixtureId}::uuid
     `;
   }
+  await syncBracketPlaceholdersForResult(sql, prior, sa, sb);
   if (clearing) await clearFixtureResultSlip(fixtureId);
   return jsonResponse({ success: true, resultApproved: approved });
 }
@@ -2596,11 +2983,42 @@ async function handleDeleteFixture(data: Record<string, unknown>): Promise<Respo
   const fixtureId = String(data.fixtureId ?? "").trim();
   if (!fixtureId) return errorResponse("fixtureId required");
   const sql = db();
-  const rows = await sql<{ result_slip_path: string | null }[]>`
-    select result_slip_path from ierne_snooker.fixtures where fixture_id = ${fixtureId}::uuid
+  const rows = await sql<{
+    result_slip_path: string | null;
+    competition_id: string;
+    stage: string;
+    round_label: string;
+    player_a_id: string;
+    player_b_id: string;
+    score_a: number | null;
+    score_b: number | null;
+  }[]>`
+    select result_slip_path, competition_id, stage, round_label,
+           player_a_id, player_b_id, score_a, score_b
+      from ierne_snooker.fixtures
+     where fixture_id = ${fixtureId}::uuid
   `;
+  const prior = rows[0];
+  if (prior && prior.score_a != null && prior.score_b != null) {
+    await syncBracketPlaceholdersForResult(sql, {
+      fixture_id: fixtureId,
+      competition_id: prior.competition_id,
+      stage: prior.stage,
+      round_label: prior.round_label,
+      player_a_id: prior.player_a_id,
+      player_b_id: prior.player_b_id,
+      score_a: prior.score_a,
+      score_b: prior.score_b,
+    }, null, null);
+  }
   await sql`delete from ierne_snooker.fixtures where fixture_id = ${fixtureId}::uuid`;
-  const dbPath = rows[0]?.result_slip_path || null;
+  await pruneUnusedInternalPlayers(sql, [
+    prior?.player_a_id || "",
+    prior?.player_b_id || "",
+    prior ? winnerOfId(prior.round_label) : "",
+    prior ? loserOfId(prior.round_label) : "",
+  ]);
+  const dbPath = prior?.result_slip_path || null;
   const paths = [resultSlipPendingPath(fixtureId), resultSlipCommittedPath(fixtureId)];
   if (dbPath) paths.push(dbPath);
   await deleteSlipPaths(paths);
@@ -2720,6 +3138,9 @@ async function handleDeleteHandicap(data: Record<string, unknown>): Promise<Resp
 async function handleDeletePlayer(data: Record<string, unknown>): Promise<Response> {
   const playerId = String(data.playerId ?? "").trim();
   if (!playerId) return errorResponse("playerId required");
+  if (isInternalPlayerId(playerId)) {
+    return errorResponse("Internal bracket placeholders cannot be managed as players");
+  }
   const sql = db();
   const [fx, br] = await Promise.all([
     sql<{ ok: boolean }[]>`

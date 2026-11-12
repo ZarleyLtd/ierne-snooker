@@ -13,7 +13,7 @@ Canonical `fixtures.round_label` values for `competition_type = 'double-eliminat
 
 ## Grand final
 - `GF` — grand final (`wo:WF` vs `wo:LF`)
-- `GF-R` — potential reset (`wo:GF` vs `lo:GF`)
+- `GF-R` — potential reset (`wo:GF` vs `lo:GF`); generated always, but shown on home / Fixtures / Results only when the LF finalist wins GF (bracket reset). If the WF finalist wins GF, the tournament ends and home shows a Champion stub.
 
 ## Placeholders
 - `wo:<code>` — winner of that match (display resolved client-side)

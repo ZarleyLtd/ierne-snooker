@@ -653,6 +653,23 @@ var KnockoutRounds = (function () {
         return (matchNum ? 'SF ' + matchNum : 'SF') + ' Winner';
       }
 
+      // Losers-bracket placeholders: "R1, Match 1 Winner" (not "Losers Round…").
+      var deOpts =
+        fixtures && fixturesLookLikeDoubleElim(fixtures) ? { doubleElim: true } : null;
+      if (
+        /^Losers Round/i.test(stageLabel) ||
+        (isLosersStageKey(stageKey, deOpts) && String(stageKey).toUpperCase() !== 'LF')
+      ) {
+        var lbRound = String(stageKey || '').replace(/^L/i, '');
+        if (!/^\d+$/.test(lbRound)) {
+          var lbLabel = String(stageLabel || '').match(/^Losers Round (\d+)/i);
+          lbRound = lbLabel ? lbLabel[1] : lbRound;
+        }
+        return matchNum
+          ? 'R' + lbRound + ', Match ' + matchNum + ' Winner'
+          : 'R' + lbRound + ' Winner';
+      }
+
       // Earlier winners-bracket / single-elim rounds: short "Match N Winner".
       var earlyRound =
         stageKey === 'L16' ||
@@ -671,8 +688,53 @@ var KnockoutRounds = (function () {
     },
 
     loserOfDisplayLabel: function (roundCode, fixtures) {
+      var c = String(roundCode || '').trim();
+      if (!c) return 'Loser';
+
+      var parsed = this.parseStageMatch(c);
+      var matchNum = parsed.matchNum || 0;
+      var stageKey = this.stageKeyFor(c);
+      var stageLabel = this.stageLabelFor(c);
+      if (fixtures && fixtures.length && typeof this.stageLabelsForFixtures === 'function') {
+        var map = this.stageLabelsForFixtures(fixtures);
+        if (map[stageKey]) stageLabel = map[stageKey];
+      }
+
+      if (
+        stageKey === 'QF' ||
+        /^Quarter-final/i.test(stageLabel) ||
+        /^Quarter Final/i.test(stageLabel)
+      ) {
+        return (matchNum ? 'QF ' + matchNum : 'QF') + ' Loser';
+      }
+      if (
+        stageKey === 'SF' ||
+        /^Semi-final/i.test(stageLabel) ||
+        /^Semi Final/i.test(stageLabel)
+      ) {
+        return (matchNum ? 'SF ' + matchNum : 'SF') + ' Loser';
+      }
+
+      // Early winners-bracket rounds shown in the losers bracket: "R1, Match 2 Loser".
+      var earlyRoundLabel = String(stageLabel || '').match(/^Round (\d+)/i);
+      if (
+        earlyRoundLabel ||
+        stageLabel === 'Round' ||
+        stageLabel === 'Preliminary' ||
+        (this.isWinnersBracketCode(c) && String(stageKey).toUpperCase() !== 'WF')
+      ) {
+        var earlyNum =
+          (earlyRoundLabel && earlyRoundLabel[1]) ||
+          (/^W(\d+)$/i.test(stageKey) ? String(stageKey).slice(1) : '');
+        if (earlyNum && matchNum) {
+          return 'R' + earlyNum + ', Match ' + matchNum + ' Loser';
+        }
+        if (earlyNum) return 'R' + earlyNum + ' Loser';
+        if (matchNum) return 'Match ' + matchNum + ' Loser';
+      }
+
       var label = this.matchLabelFor(roundCode, fixtures);
-      var base = label || String(roundCode || '').trim();
+      var base = label || c;
       return base ? base + ' Loser' : 'Loser';
     },
 
@@ -977,6 +1039,63 @@ var KnockoutRounds = (function () {
       return c === 'GF' || c === 'GF-R';
     },
 
+    findFixtureByCode: function (fixtures, code) {
+      var want = String(code == null ? '' : code).trim();
+      if (!want) return null;
+      for (var i = 0; i < (fixtures || []).length; i++) {
+        if (String(fixtures[i]['Game Week'] || '').trim() === want) return fixtures[i];
+      }
+      return null;
+    },
+
+    /**
+     * True when GF is decided and the losers-bracket finalist won — the only
+     * case where a Grand Final Reset is required / should be shown.
+     * GF is generated as wo:WF (A) vs wo:LF (B).
+     */
+    grandFinalResetRequired: function (fixtures) {
+      var gf = this.findFixtureByCode(fixtures, 'GF');
+      if (!gf) return false;
+      var winSlot = decidedWinSlot(gf);
+      if (!winSlot) return false;
+
+      var winnerIds = this.buildRoundWinnerIdsMap(fixtures);
+      var loserIds = this.buildRoundLoserIdsMap
+        ? this.buildRoundLoserIdsMap(fixtures)
+        : {};
+      var gfWinnerId = this.resolvedPlayerId(gf, winSlot, winnerIds, loserIds);
+      var lfWinnerId = winnerIds.LF || '';
+      var wfWinnerId = winnerIds.WF || '';
+
+      if (gfWinnerId && lfWinnerId && String(gfWinnerId) === String(lfWinnerId)) {
+        return true;
+      }
+      if (gfWinnerId && wfWinnerId && String(gfWinnerId) === String(wfWinnerId)) {
+        return false;
+      }
+      // Placeholders / unresolved ids: slot B is the LF finalist by generation.
+      return winSlot === 'b';
+    },
+
+    /** Whether list/bracket UIs should include the GF-R fixture. */
+    shouldShowGrandFinalReset: function (fixtures) {
+      return this.grandFinalResetRequired(fixtures);
+    },
+
+    /**
+     * Overall DE champion display name once the tournament is decided:
+     * WB wins GF → GF winner; LB wins GF → GF-R winner when that match is done.
+     */
+    doubleElimChampionName: function (fixtures) {
+      var winners = this.buildRoundWinnersMap(fixtures);
+      var gf = this.findFixtureByCode(fixtures, 'GF');
+      if (!gf || !decidedWinSlot(gf)) return '';
+      if (this.grandFinalResetRequired(fixtures)) {
+        return winners['GF-R'] || '';
+      }
+      return winners.GF || '';
+    },
+
     groupFixturesByStage: function (fixtures, descending) {
       var deOpts = { doubleElim: fixturesLookLikeDoubleElim(fixtures) };
       var stages = {};
@@ -1045,17 +1164,25 @@ var KnockoutRounds = (function () {
 
     /**
      * Group knockout fixtures by stage for list UIs (fixtures, results, admin).
+     * Pass labelFixtures (usually the full comp set) so Round / Quarter-finals /
+     * Semi-finals names stay correct when `fixtures` is a filtered subset
+     * (upcoming only, byes removed, results only, …).
      * @returns {{ grouped: Object.<string,Array>, orderedKeys: string[], labels: Object.<string,string> }}
      */
-    groupForList: function (fixtures) {
+    groupForList: function (fixtures, labelFixtures) {
       var stages = this.groupFixturesByStage(fixtures, false);
+      var labelMap =
+        labelFixtures && labelFixtures !== fixtures
+          ? this.stageLabelsForFixtures(labelFixtures)
+          : null;
       var grouped = {};
       var orderedKeys = [];
       var labels = {};
       stages.forEach(function (stage) {
         orderedKeys.push(stage.stageKey);
         grouped[stage.stageKey] = stage.matches;
-        labels[stage.stageKey] = stage.label;
+        labels[stage.stageKey] =
+          (labelMap && labelMap[stage.stageKey]) || stage.label;
       });
       return { grouped: grouped, orderedKeys: orderedKeys, labels: labels };
     },

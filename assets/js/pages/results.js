@@ -150,6 +150,15 @@ var ResultsPage = {
         ) {
           return false;
         }
+        // GF-R only after the LB finalist wins the first grand final.
+        if (
+          String(r['Game Week'] || '').trim() === 'GF-R' &&
+          typeof KnockoutRounds !== 'undefined' &&
+          KnockoutRounds.shouldShowGrandFinalReset &&
+          !KnockoutRounds.shouldShowGrandFinalReset(data)
+        ) {
+          return false;
+        }
         if (!isKnockout) {
           var stage = String(r.Stage || '').toLowerCase();
           if (stage === 'knockout') return false;
@@ -176,7 +185,8 @@ var ResultsPage = {
         winnerIdsByCode = KnockoutRounds.buildRoundWinnerIdsMap
           ? KnockoutRounds.buildRoundWinnerIdsMap(data)
           : {};
-        var koGroup = KnockoutRounds.groupForList(rows);
+        // Labels from full set — filtered results skew W* match counts to "Round".
+        var koGroup = KnockoutRounds.groupForList(rows, data);
         groupedWeeks = { grouped: koGroup.grouped, orderedWeeks: koGroup.orderedKeys };
         sectionLabels = koGroup.labels;
       } else {

@@ -87,6 +87,7 @@ var AdminCompetitionsPage = (function () {
     allPlayers: [],
     editingGroup: null,
     editSessionId: 0,
+    pendingDeleteCompId: null,
     el: {},
 
     isKnockoutType: function () {
@@ -120,6 +121,11 @@ var AdminCompetitionsPage = (function () {
         cDelete: document.getElementById('adminCompDelete'),
         cSave: document.getElementById('adminCompSave'),
         deleteLeft: document.querySelector('#adminCompForm .admin-form-actions__left'),
+        deleteConfirm: document.getElementById('adminCompDeleteConfirm'),
+        deleteConfirmText: document.getElementById('adminCompDeleteConfirmText'),
+        deleteConfirmClose: document.getElementById('adminCompDeleteConfirmClose'),
+        deleteConfirmCancel: document.getElementById('adminCompDeleteConfirmCancel'),
+        deleteConfirmOk: document.getElementById('adminCompDeleteConfirmOk'),
         manageSection: document.getElementById('adminCompManageSection'),
         saveFirstHint: document.getElementById('adminCompSaveFirstHint'),
         leagueSection: document.getElementById('adminCompLeagueSection'),
@@ -162,6 +168,13 @@ var AdminCompetitionsPage = (function () {
       el.hidden = !text;
       if (el !== this.el.msg && this.el.msg) {
         this.el.msg.hidden = true;
+      }
+      if (text && el.scrollIntoView) {
+        try {
+          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        } catch (e) {
+          el.scrollIntoView(true);
+        }
       }
     },
 
@@ -452,14 +465,51 @@ var AdminCompetitionsPage = (function () {
       var btn = this.el.cDelete;
       var left = this.el.deleteLeft;
       if (!btn) return;
-      if (!this.activeCompId) {
-        btn.hidden = true;
-        if (left) left.hidden = true;
-        return;
+      var editing = !!this.activeCompId;
+      btn.hidden = !editing;
+      if (left) left.hidden = !editing;
+    },
+
+    openDeleteConfirm: function (compId, label) {
+      this.pendingDeleteCompId = compId;
+      if (this.el.deleteConfirmText) {
+        this.el.deleteConfirmText.textContent =
+          'Delete comp "' +
+          label +
+          '"? This permanently removes the competition, its fixtures, groups, and roster.';
       }
-      var hasPlayers = this.compHasPlayers();
-      btn.hidden = hasPlayers;
-      if (left) left.hidden = hasPlayers;
+      if (!this.el.deleteConfirm) return;
+      this.el.deleteConfirm.hidden = false;
+      this.el.deleteConfirm.classList.add('is-open');
+      if (this.el.deleteConfirmOk) this.el.deleteConfirmOk.focus();
+    },
+
+    closeDeleteConfirm: function () {
+      this.pendingDeleteCompId = null;
+      if (!this.el.deleteConfirm) return;
+      this.el.deleteConfirm.classList.remove('is-open');
+      this.el.deleteConfirm.hidden = true;
+    },
+
+    fixtureHasRealResult: function (f) {
+      if (!f) return false;
+      if (
+        String(f.playerAId || '').trim().toLowerCase() === 'bye' ||
+        String(f.playerBId || '').trim().toLowerCase() === 'bye'
+      ) {
+        return false;
+      }
+      var scoreA = f.scoreA;
+      var scoreB = f.scoreB;
+      if ((scoreA == null || scoreB == null) && f['Result']) {
+        var parts = String(f['Result']).trim().split('-');
+        if (parts.length === 2) {
+          scoreA = parseInt(parts[0], 10);
+          scoreB = parseInt(parts[1], 10);
+        }
+      }
+      if (scoreA == null || scoreB == null) return false;
+      return Number.isFinite(Number(scoreA)) && Number.isFinite(Number(scoreB));
     },
 
     updateCompTypeField: function () {
@@ -711,7 +761,15 @@ var AdminCompetitionsPage = (function () {
       document.body.style.overflow = 'hidden';
     },
 
+    clearPlayerPickers: function () {
+      if (this.el.knockoutPlayers) this.el.knockoutPlayers.innerHTML = '';
+      if (this.el.groupPlayers) this.el.groupPlayers.innerHTML = '';
+      if (this.el.groupsList) this.el.groupsList.innerHTML = '';
+      if (this.el.knockoutStagesList) this.el.knockoutStagesList.innerHTML = '';
+    },
+
     closeCompModal: function () {
+      this.closeDeleteConfirm();
       if (!this.el.modal) return;
       this.el.modal.classList.remove('is-open');
       this.el.modal.hidden = true;
@@ -721,6 +779,7 @@ var AdminCompetitionsPage = (function () {
       this.activeCompId = null;
       this.groups = [];
       this.roster = [];
+      this.clearPlayerPickers();
     },
 
     openGroupModal: function () {
@@ -742,6 +801,7 @@ var AdminCompetitionsPage = (function () {
       this.activeCompId = null;
       this.groups = [];
       this.roster = [];
+      this.clearPlayerPickers();
       if (this.el.modalTitle) this.el.modalTitle.textContent = 'Add Comp';
       if (this.el.form) this.el.form.reset();
       if (this.el.cType) {
@@ -769,6 +829,8 @@ var AdminCompetitionsPage = (function () {
         this.el.cType.value = normalizeCompetitionType(c);
       }
       this.setManageVisible(true);
+      this.updateCompDeleteButton();
+      this.updateCompTypeField();
       this.applyManageUi();
       this.openCompModal();
       this.loadCompDetail(c.compId, sessionId).then(function () {
@@ -790,7 +852,10 @@ var AdminCompetitionsPage = (function () {
 
       me.persistCompHeader()
         .then(function () {
-          if (isBracketTypeValue(competitionType)) {
+          // Only sync the visible knockout picker when editing an existing comp.
+          // On first create the manage section is hidden; stale checkboxes from a
+          // previous edit must not be written onto the new competition.
+          if (isBracketTypeValue(competitionType) && me.editing) {
             var selected = me.getCheckedPlayerIds(me.el.knockoutPlayers);
             return me.syncKnockoutRoster(id, selected);
           }
@@ -812,26 +877,49 @@ var AdminCompetitionsPage = (function () {
     deleteComp: function () {
       if (!this.activeCompId) return;
       var me = this;
-      var label = (me.el.cName && me.el.cName.value.trim()) || this.activeCompId;
-      if (
-        !window.confirm(
-          'Delete comp "' + label + '"? Only allowed when no players or fixtures are linked.'
-        )
-      ) {
-        return;
-      }
+      var compId = me.activeCompId;
+      var label = (me.el.cName && me.el.cName.value.trim()) || compId;
       if (me.el.cDelete) me.el.cDelete.disabled = true;
-      ApiClient.post('deleteCompetition', { compId: me.activeCompId })
-        .then(function () {
-          me.closeCompModal();
-          me.flash('Comp deleted.', false);
-          return me.loadCompetitions();
+      ApiClient.get({ action: 'getFixtures', comp: compId })
+        .then(function (r) {
+          var fixtures = r.fixtures || [];
+          for (var i = 0; i < fixtures.length; i++) {
+            if (me.fixtureHasRealResult(fixtures[i])) {
+              throw new Error(
+                'This competition still has results. Delete the results before removing the comp.'
+              );
+            }
+          }
+          me.openDeleteConfirm(compId, label);
         })
         .catch(function (err) {
           me.flash(err.message || String(err), true);
         })
         .finally(function () {
           if (me.el.cDelete) me.el.cDelete.disabled = false;
+        });
+    },
+
+    confirmDeleteComp: function () {
+      var me = this;
+      var compId = me.pendingDeleteCompId;
+      if (!compId) return;
+      if (me.el.deleteConfirmOk) me.el.deleteConfirmOk.disabled = true;
+      if (me.el.deleteConfirmCancel) me.el.deleteConfirmCancel.disabled = true;
+      ApiClient.post('deleteCompetition', { compId: compId })
+        .then(function () {
+          me.closeDeleteConfirm();
+          me.closeCompModal();
+          me.flash('Comp deleted.', false);
+          return me.loadCompetitions();
+        })
+        .catch(function (err) {
+          me.closeDeleteConfirm();
+          me.flash(err.message || String(err), true);
+        })
+        .finally(function () {
+          if (me.el.deleteConfirmOk) me.el.deleteConfirmOk.disabled = false;
+          if (me.el.deleteConfirmCancel) me.el.deleteConfirmCancel.disabled = false;
         });
     },
 
@@ -951,6 +1039,26 @@ var AdminCompetitionsPage = (function () {
           me.deleteComp();
         });
       }
+      if (this.el.deleteConfirmClose) {
+        this.el.deleteConfirmClose.addEventListener('click', function () {
+          me.closeDeleteConfirm();
+        });
+      }
+      if (this.el.deleteConfirmCancel) {
+        this.el.deleteConfirmCancel.addEventListener('click', function () {
+          me.closeDeleteConfirm();
+        });
+      }
+      if (this.el.deleteConfirmOk) {
+        this.el.deleteConfirmOk.addEventListener('click', function () {
+          me.confirmDeleteComp();
+        });
+      }
+      if (this.el.deleteConfirm) {
+        this.el.deleteConfirm.addEventListener('click', function (ev) {
+          if (ev.target === me.el.deleteConfirm) me.closeDeleteConfirm();
+        });
+      }
       if (this.el.modalClose) {
         this.el.modalClose.addEventListener('click', function () {
           me.closeCompModal();
@@ -1010,7 +1118,9 @@ var AdminCompetitionsPage = (function () {
       }
       document.addEventListener('keydown', function (ev) {
         if (ev.key !== 'Escape') return;
-        if (me.el.groupModal && me.el.groupModal.classList.contains('is-open')) {
+        if (me.el.deleteConfirm && me.el.deleteConfirm.classList.contains('is-open')) {
+          me.closeDeleteConfirm();
+        } else if (me.el.groupModal && me.el.groupModal.classList.contains('is-open')) {
           me.closeGroupModal();
         } else if (me.el.modal && me.el.modal.classList.contains('is-open')) {
           me.closeCompModal();

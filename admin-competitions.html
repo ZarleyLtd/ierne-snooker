@@ -151,7 +151,7 @@
 
           <div class="admin-form-actions">
             <div class="admin-form-actions__left">
-              <button type="button" class="btn btn-danger" id="adminCompDelete" hidden data-help="adminComps.delete">Delete</button>
+              <button type="button" class="btn btn-danger" id="adminCompDelete" hidden data-help="adminComps.delete">Delete Comp</button>
             </div>
             <div class="admin-form-actions__right">
               <button type="button" class="btn btn-secondary" id="adminCompModalCancel" data-help="adminComps.cancel">Cancel</button>
@@ -160,6 +160,22 @@
           </div>
           <p id="adminCompModalMsg" class="msg admin-modal__msg admin-modal__msg--below-actions" hidden></p>
         </form>
+      </div>
+    </div>
+
+    <div id="adminCompDeleteConfirm" class="admin-modal admin-modal--dark admin-modal--confirm" role="dialog" aria-modal="true" aria-labelledby="adminCompDeleteConfirmTitle" hidden>
+      <div class="admin-modal__dialog admin-modal__dialog--confirm">
+        <div class="admin-modal__header">
+          <h2 id="adminCompDeleteConfirmTitle">Delete Comp</h2>
+          <button type="button" class="admin-modal__close" id="adminCompDeleteConfirmClose" data-help="chrome.close" aria-label="Close">&times;</button>
+        </div>
+        <p id="adminCompDeleteConfirmText" class="admin-confirm__text"></p>
+        <div class="admin-form-actions admin-form-actions--confirm">
+          <div class="admin-form-actions__right">
+            <button type="button" class="btn btn-secondary" id="adminCompDeleteConfirmCancel">Cancel</button>
+            <button type="button" class="btn btn-danger" id="adminCompDeleteConfirmOk" data-help="adminComps.delete">Confirm Delete</button>
+          </div>
+        </div>
       </div>
     </div>
 

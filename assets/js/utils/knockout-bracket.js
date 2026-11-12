@@ -21,6 +21,49 @@ var KnockoutBracket = (function () {
       : code;
   }
 
+  function linkParent(parentOf, childKey, parentKey) {
+    if (!childKey || !parentKey || childKey === parentKey) return;
+    if (!parentOf[childKey]) parentOf[childKey] = [];
+    if (parentOf[childKey].indexOf(parentKey) < 0) {
+      parentOf[childKey].push(parentKey);
+    }
+  }
+
+  /**
+   * Collect concrete player ids/names that can seed a later round.
+   * Includes decided/bye winners so QF→SF stays linked after wo: slots are filled.
+   */
+  function stageFeederIdentity(stage) {
+    var ids = {};
+    var names = {};
+    (stage.matches || []).forEach(function (m) {
+      var winSlot =
+        typeof KnockoutRounds !== 'undefined' && KnockoutRounds.decidedWinSlot
+          ? KnockoutRounds.decidedWinSlot(m)
+          : null;
+      [
+        { id: m.playerAId, name: m['Player A'], slot: 'a' },
+        { id: m.playerBId, name: m['Player B'], slot: 'b' },
+      ].forEach(function (row) {
+        var id = String(row.id || '').trim();
+        var name = String(row.name || '').trim();
+        if (
+          typeof KnockoutRounds !== 'undefined' &&
+          (KnockoutRounds.isBracketPlaceholderPlayerId(id) ||
+            KnockoutRounds.isByePlayerId(id))
+        ) {
+          return;
+        }
+        if (name.toLowerCase() === 'bye' || name === 'TBD') return;
+        // Prefer the decided/bye winner; otherwise keep both (unplayed).
+        if (winSlot && winSlot !== row.slot) return;
+        if (id) ids[id] = true;
+        if (name) names[name] = true;
+      });
+    });
+    return { ids: ids, names: names };
+  }
+
   /** @returns {Array<{id:string,label:string,stages:Array}>} */
   function buildTracks(stagesAsc) {
     if (!stagesAsc.length) return [];
@@ -42,10 +85,47 @@ var KnockoutBracket = (function () {
           ) {
             var refCode = KnockoutRounds.roundCodeFromWinnerOfId(pid);
             var psk = stageKeyFromCode(refCode);
-            if (psk && stageByKey[psk] && parentOf[stage.stageKey].indexOf(psk) < 0) {
-              parentOf[stage.stageKey].push(psk);
+            if (psk && stageByKey[psk]) {
+              linkParent(parentOf, stage.stageKey, psk);
             }
           }
+        });
+      });
+    });
+
+    // After results (or bye advances) fill real players into later rounds, wo:
+    // links disappear. Reconnect stages that share those concrete players so
+    // e.g. QF stays on the same track as SF/F.
+    var feeders = {};
+    stagesAsc.forEach(function (stage) {
+      feeders[stage.stageKey] = stageFeederIdentity(stage);
+    });
+    stagesAsc.forEach(function (later) {
+      stagesAsc.forEach(function (earlier) {
+        if (earlier.sortKey >= later.sortKey) return;
+        if ((parentOf[later.stageKey] || []).indexOf(earlier.stageKey) >= 0) return;
+        var feed = feeders[earlier.stageKey];
+        var linked = false;
+        later.matches.forEach(function (m) {
+          if (linked) return;
+          [
+            { id: m.playerAId, name: m['Player A'] },
+            { id: m.playerBId, name: m['Player B'] },
+          ].forEach(function (row) {
+            if (linked) return;
+            var id = String(row.id || '').trim();
+            var name = String(row.name || '').trim();
+            if (
+              typeof KnockoutRounds !== 'undefined' &&
+              KnockoutRounds.isBracketPlaceholderPlayerId(id)
+            ) {
+              return;
+            }
+            if ((id && feed.ids[id]) || (name && feed.names[name])) {
+              linkParent(parentOf, later.stageKey, earlier.stageKey);
+              linked = true;
+            }
+          });
         });
       });
     });
@@ -343,6 +423,46 @@ var KnockoutBracket = (function () {
     return card;
   }
 
+  function renderChampionStubCard(name) {
+    var card = document.createElement('article');
+    card.className =
+      'ko-bracket-match ko-bracket-match--gf-stub ko-bracket-match--champion';
+    card.setAttribute('data-round-code', 'CHAMPION');
+    card.setAttribute('aria-label', 'Champion ' + name);
+
+    var line = document.createElement('div');
+    line.className = 'ko-bracket-match__row ko-bracket-match__row--winner';
+    var nameEl = document.createElement('span');
+    nameEl.className = 'ko-bracket-match__name';
+    nameEl.textContent = name;
+    line.appendChild(nameEl);
+    card.appendChild(line);
+    return card;
+  }
+
+  function renderChampionColumn(name, layoutSlots) {
+    var col = document.createElement('div');
+    col.className = 'ko-bracket-stage ko-bracket-stage--champion';
+    col.setAttribute('data-stage', 'CHAMPION');
+
+    var head = document.createElement('div');
+    head.className = 'ko-bracket-stage__head';
+    head.textContent = 'Champion';
+
+    var list = document.createElement('div');
+    list.className = 'ko-bracket-stage__list';
+    list.appendChild(renderChampionStubCard(name));
+
+    var arena = document.createElement('div');
+    arena.className = 'ko-bracket-stage__arena';
+    arena.style.setProperty('--ko-layout-slots', String(Math.max(1, layoutSlots || 1)));
+    arena.appendChild(list);
+
+    col.appendChild(head);
+    col.appendChild(arena);
+    return col;
+  }
+
   function appendBridgeLine(bridge) {
     var line = document.createElement('span');
     line.className = 'ko-bracket-final-exit__bridge-line';
@@ -402,7 +522,12 @@ var KnockoutBracket = (function () {
     return false;
   }
 
-  function displayNameForSlot(match, slot, winnersByCode, losersByCode, entryStubByCode, fixtures) {
+  /**
+   * Losers-bracket entry label: append "(L15)" the first time a WB dropper
+   * appears. Works for lo: placeholders and concrete ids after propagation.
+   */
+  function displayNameForSlot(match, slot, winnersByCode, losersByCode, entryStubByCode, fixtures, entryOpts) {
+    entryOpts = entryOpts || {};
     var displayName =
       typeof KnockoutRounds !== 'undefined' && KnockoutRounds.resolvedPlayerName
         ? KnockoutRounds.resolvedPlayerName(
@@ -416,14 +541,28 @@ var KnockoutBracket = (function () {
           ? match['Player A'] || 'TBD'
           : match['Player B'] || 'TBD';
     if (!entryStubByCode || typeof KnockoutRounds === 'undefined') return displayName;
+
     var id = slot === 'a' ? match.playerAId : match.playerBId;
-    if (!KnockoutRounds.isLoserOfPlayerId || !KnockoutRounds.isLoserOfPlayerId(id)) {
-      return displayName;
+    var stub = '';
+    var seenKey = '';
+    var loserIdsByCode = entryOpts.loserIdsByCode || {};
+    var stubByPlayerId = entryOpts.stubByPlayerId || {};
+    var seen = entryOpts.lbEntrySeen;
+
+    if (KnockoutRounds.isLoserOfPlayerId && KnockoutRounds.isLoserOfPlayerId(id)) {
+      var feederCode = KnockoutRounds.roundCodeFromLoserOfId(id);
+      stub = entryStubByCode[feederCode] || '';
+      var resolvedId = loserIdsByCode[feederCode] || '';
+      seenKey = resolvedId ? String(resolvedId) : feederCode ? 'lo:' + feederCode : '';
+    } else if (id && stubByPlayerId[String(id)]) {
+      stub = stubByPlayerId[String(id)];
+      seenKey = String(id);
     }
-    var feederCode = KnockoutRounds.roundCodeFromLoserOfId(id);
-    var stub = entryStubByCode[feederCode];
-    if (!stub) return displayName;
-    return '(' + stub + ') ' + displayName;
+
+    if (!stub || !seenKey) return displayName;
+    if (seen && seen[seenKey]) return displayName;
+    if (seen) seen[seenKey] = true;
+    return displayName + ' (' + stub + ')';
   }
 
   function renderMatchCard(match, winnersByCode, opts) {
@@ -450,7 +589,8 @@ var KnockoutBracket = (function () {
         winnersByCode,
         opts.losersByCode,
         opts.entryStubByCode,
-        opts.fixtures
+        opts.fixtures,
+        opts
       );
       var line = document.createElement('div');
       line.className = 'ko-bracket-match__row';
@@ -1061,6 +1201,13 @@ var KnockoutBracket = (function () {
       );
     });
 
+    var navStages = stages.slice();
+    var championName = String(trackOptions.championName || '').trim();
+    if (championName) {
+      scrollTrack.appendChild(renderChampionColumn(championName, layoutSlots));
+      navStages.push({ stageKey: 'CHAMPION', label: 'Champion' });
+    }
+
     viewport.appendChild(scrollTrack);
 
     shell.appendChild(viewport);
@@ -1110,7 +1257,7 @@ var KnockoutBracket = (function () {
 
     scrollTrack._koLayoutConnectors = layoutConnectors;
 
-    bindScroll(block, viewport, scrollTrack, stages, stageTitleEl);
+    bindScroll(block, viewport, scrollTrack, navStages, stageTitleEl);
   }
 
   return {
@@ -1194,6 +1341,16 @@ var KnockoutBracket = (function () {
           });
         });
 
+        var loserIdsByCode =
+          typeof KnockoutRounds.buildRoundLoserIdsMap === 'function'
+            ? KnockoutRounds.buildRoundLoserIdsMap(fixtures)
+            : {};
+        var stubByPlayerId = {};
+        Object.keys(stubByCode).forEach(function (wbCode) {
+          var lid = loserIdsByCode[wbCode];
+          if (lid) stubByPlayerId[String(lid)] = stubByCode[wbCode];
+        });
+
         if (wbStages.length) {
           renderTrack(
             { id: 'winners', label: 'Winners', stages: wbStages },
@@ -1223,12 +1380,26 @@ var KnockoutBracket = (function () {
               cardOpts: {
                 losersByCode: losersByCode,
                 entryStubByCode: stubByCode,
+                stubByPlayerId: stubByPlayerId,
+                loserIdsByCode: loserIdsByCode,
+                lbEntrySeen: {},
                 fixtures: fixtures,
               },
             }
           );
         }
-        if (gfStages.length) {
+        var showGfReset =
+          typeof KnockoutRounds.shouldShowGrandFinalReset === 'function' &&
+          KnockoutRounds.shouldShowGrandFinalReset(fixtures);
+        gfStages = gfStages.filter(function (stage) {
+          return stage.stageKey !== 'GF-R' || showGfReset;
+        });
+        var championName =
+          typeof KnockoutRounds.doubleElimChampionName === 'function'
+            ? KnockoutRounds.doubleElimChampionName(fixtures)
+            : '';
+
+        if (gfStages.length || championName) {
           renderTrack(
             { id: 'finals', label: 'Finals', stages: gfStages },
             root,
@@ -1236,6 +1407,7 @@ var KnockoutBracket = (function () {
             {
               stageNav: stageNav,
               trackLabel: 'Grand Final',
+              championName: championName,
               cardOpts: { losersByCode: losersByCode, fixtures: fixtures },
             }
           );

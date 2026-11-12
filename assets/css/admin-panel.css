@@ -117,6 +117,33 @@
   justify-content: center;
 }
 
+.admin-modal--confirm {
+  z-index: 1100;
+}
+
+.admin-modal--confirm.is-open {
+  align-items: center;
+}
+
+.admin-modal__dialog--confirm {
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.admin-confirm__text {
+  margin: 0 0 1.25em;
+  line-height: 1.45;
+  color: inherit;
+}
+
+.admin-form-actions--confirm {
+  margin-top: 0;
+}
+
+.admin-modal--dark .admin-confirm__text {
+  color: #e8e8e8;
+}
+
 /* Season + group editors: grow with content; scroll the page, not inner lists */
 #adminLsSeasonModal.is-open,
 #adminLsGroupModal.is-open,

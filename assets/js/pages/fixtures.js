@@ -960,6 +960,23 @@ var FixturesPage = {
         var notPlayed = !played;
         var hasParticipants = r['Game Week'] && r['Player A'] && r['Player B'];
         if ((!notPlayed && !unapproved) || !hasParticipants) return false;
+        // Bye pads are structural only — hide from the fixtures list.
+        if (
+          typeof KnockoutRounds !== 'undefined' &&
+          KnockoutRounds.isByeFixture &&
+          KnockoutRounds.isByeFixture(r)
+        ) {
+          return false;
+        }
+        // GF-R only after the LB finalist wins the first grand final.
+        if (
+          String(r['Game Week'] || '').trim() === 'GF-R' &&
+          typeof KnockoutRounds !== 'undefined' &&
+          KnockoutRounds.shouldShowGrandFinalReset &&
+          !KnockoutRounds.shouldShowGrandFinalReset(data)
+        ) {
+          return false;
+        }
         if (!isKnockout) {
           var stage = String(r.Stage || '').toLowerCase();
           if (stage === 'knockout') return false;
@@ -986,7 +1003,8 @@ var FixturesPage = {
         winnerIdsByCode = KnockoutRounds.buildRoundWinnerIdsMap
           ? KnockoutRounds.buildRoundWinnerIdsMap(data)
           : {};
-        var koGroup = KnockoutRounds.groupForList(upcoming);
+        // Labels from full set — filtered upcoming/byes skew W* match counts to "Round".
+        var koGroup = KnockoutRounds.groupForList(upcoming, data);
         grouped = { grouped: koGroup.grouped, orderedWeeks: koGroup.orderedKeys };
         sectionLabels = koGroup.labels;
       } else {

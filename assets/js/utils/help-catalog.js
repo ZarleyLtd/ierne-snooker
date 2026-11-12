@@ -525,8 +525,8 @@ window.IerneHelpCatalog = {
       body: 'Tick the players on this knockout or double-eliminator. The ticks are kept when you save the comp. A player already on another current roster is not listed.'
     },
     'adminComps.delete': {
-      title: 'Delete',
-      body: 'Deletes this comp. Shown only for a comp that already exists.'
+      title: 'Delete Comp',
+      body: 'Opens a confirmation dialog. Confirm permanently removes the competition and its fixtures, groups, and roster. Blocked while any match still has a result.'
     },
     'adminComps.cancel': {
       title: 'Cancel',

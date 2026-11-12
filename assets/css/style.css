@@ -292,6 +292,23 @@ button.player-inline-link:active {
   text-overflow: clip;
 }
 
+.ko-bracket-match--champion {
+  width: auto;
+  min-width: 7.5rem;
+  background: rgba(22, 145, 121, 0.28);
+  border-color: #2ee0b8;
+}
+
+.ko-bracket-match--champion .ko-bracket-match__name {
+  font-size: 1.15rem;
+  font-variation-settings: "wght" 700;
+  color: #5dffd0;
+}
+
+.ko-bracket-stage--champion .ko-bracket-stage__head {
+  color: #169179;
+}
+
 .ko-bracket-match--bye .ko-bracket-match__score {
   opacity: 0.45;
 }
