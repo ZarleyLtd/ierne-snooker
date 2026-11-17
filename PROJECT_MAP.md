@@ -21,7 +21,7 @@ No heavy frameworks. Focus on speed, clean SEO, and simple updates.
 
 ## Tech Stack & Key Features
 - **HTML5/CSS3**: Pure and semantic.
-- **Component Strategy**: AI-managed "Sync" (Rules in `.cursorrules`).
+- **Component Strategy**: AI-managed "Sync" (Rules in `CLAUDE.md`).
 - **JavaScript Architecture**: Modular, component-based structure with clear separation of concerns:
   - Configuration centralized in `/config/`
   - Utilities for common operations in `/utils/`
